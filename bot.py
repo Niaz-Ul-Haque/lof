@@ -14,9 +14,11 @@ DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 RIOT_API_KEY = os.getenv('RIOT_API_KEY')
 RIOT_API_BASE_URL = "https://na1.api.riotgames.com/lol"
 
-# Initialize bot
+# Initialize bot with explicit intents
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
+intents.presences = True
 bot = commands.Bot(command_prefix='#', intents=intents)
 
 # Tier points mapping
