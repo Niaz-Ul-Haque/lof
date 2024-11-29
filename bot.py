@@ -45,7 +45,7 @@ async def get_summoner_data(summoner_name):
         return response.json()
     return None
 
-async def get_match_history(puuid, count=10):
+async def get_match_history(puuid, count=5):
     """Get recent matches for a summoner"""
     headers = {"X-Riot-Token": RIOT_API_KEY}
     url = f"https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?count={count}"
@@ -67,17 +67,15 @@ async def on_ready():
     print(f'{bot.user} has connected to Discord!')
 
 @bot.command(name='leagueofflex')
-async def league_flex(ctx, *args):
-    if len(args) == 0:
+async def league_flex(ctx, *, input_text=None):
+    if not input_text:
         await ctx.send("Please provide a summoner name or team data!")
         return
     
     # Check if it's a JSON input (team balancing)
-    if args[0].startswith('{'):
+    if input_text.strip().startswith('{'):
         try:
-            # Combine all args in case JSON was split
-            json_str = ' '.join(args)
-            data = json.loads(json_str)
+            data = json.loads(input_text)
             players = data.get('players', [])
             
             if len(players) != 10:
@@ -116,15 +114,12 @@ async def league_flex(ctx, *args):
             
             await ctx.send(embed=embed)
             return
-            
         except json.JSONDecodeError:
-            await ctx.send("Invalid JSON format! Please check your input.")
-            return
-        except Exception as e:
-            await ctx.send(f"Error processing team data: {str(e)}")
-            return
+            # Not JSON, treat as summoner name
+            pass
     
     # Handle single summoner lookup
+    args = input_text.split()
     summoner_name = args[0]
     champion_name = args[1] if len(args) > 1 else None
     
