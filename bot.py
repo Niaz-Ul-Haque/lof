@@ -1,18 +1,14 @@
 import discord
 from discord.ext import commands
-import json
-import random
 import os
 from dotenv import load_dotenv
-import requests
+from itertools import combinations
 
 # Load environment variables
 load_dotenv()
 
 # Bot configuration
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-RIOT_API_KEY = os.getenv('RIOT_API_KEY')
-RIOT_API_BASE_URL = "https://na1.api.riotgames.com/lol"
 
 # Initialize bot with explicit intents
 intents = discord.Intents.default()
@@ -35,33 +31,6 @@ TIER_POINTS = {
     "C": 20.0
 }
 
-async def get_summoner_data(summoner_name):
-    """Get basic summoner data from Riot API"""
-    headers = {"X-Riot-Token": RIOT_API_KEY}
-    url = f"{RIOT_API_BASE_URL}/summoner/v4/summoners/by-name/{summoner_name}"
-    
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return response.json()
-    return None
-
-async def get_match_history(puuid, count=5):
-    """Get recent matches for a summoner"""
-    headers = {"X-Riot-Token": RIOT_API_KEY}
-    url = f"https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?count={count}"
-    
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        match_ids = response.json()
-        matches = []
-        for match_id in match_ids:
-            match_url = f"https://americas.api.riotgames.com/lol/match/v5/matches/{match_id}"
-            match_response = requests.get(match_url, headers=headers)
-            if match_response.status_code == 200:
-                matches.append(match_response.json())
-        return matches
-    return None
-
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
@@ -69,90 +38,85 @@ async def on_ready():
 @bot.command(name='leagueofflex')
 async def league_flex(ctx, *, input_text=None):
     if not input_text:
-        await ctx.send("Please provide a summoner name or team data!")
+        await ctx.send("For team balancing use: #leagueofflex team player1 rank1 player2 rank2 ...")
         return
     
-    # Check if it's a JSON input (team balancing)
-    if input_text.strip().startswith('{'):
+    args = input_text.split()
+    
+    # Check if it's a team balancing request
+    if args[0].lower() == 'team':
+        args = args[1:]  # Remove 'team' from args
+        if len(args) < 20:  # Need 20 args for 10 players (name + rank for each)
+            await ctx.send("For team balancing, provide 10 players with their ranks.\nFormat: #leagueofflex team player1 rank1 player2 rank2 ...")
+            return
+        
         try:
-            data = json.loads(input_text)
-            players = data.get('players', [])
-            
-            if len(players) != 10:
-                await ctx.send("Please provide exactly 10 players!")
-                return
-            
-            # Calculate player scores
-            player_scores = []
-            for player, rank in players:
-                score = TIER_POINTS.get(rank, 0)
-                player_scores.append((player, score))
+            # Process players in pairs (name, rank)
+            players = []
+            for i in range(0, 20, 2):
+                player_name = args[i]
+                player_rank = args[i+1].upper()  # Convert rank to uppercase
+                if player_rank not in TIER_POINTS:
+                    await ctx.send(f"Invalid rank '{player_rank}' for player '{player_name}'. Valid ranks: I4-I1, B4-B1, S4-S1, G4-G1, P4-P1, D4-D1, M, GM, C")
+                    return
+                players.append((player_name, player_rank, TIER_POINTS[player_rank]))
             
             # Sort players by score
-            player_scores.sort(key=lambda x: x[1], reverse=True)
+            players.sort(key=lambda x: x[2], reverse=True)
             
-            # Create balanced teams
-            team1 = []
-            team2 = []
-            team1_score = 0
-            team2_score = 0
+            # Find the most balanced 5v5 combination
+            best_diff = float('inf')
+            best_team1 = None
+            best_team2 = None
             
-            # Distribute players to balance teams
-            for i, (player, score) in enumerate(player_scores):
-                if team1_score <= team2_score:
-                    team1.append(player)
-                    team1_score += score
-                else:
-                    team2.append(player)
-                    team2_score += score
+            # Try all possible combinations of 5 players
+            for team1_indices in combinations(range(10), 5):
+                team1 = [players[i] for i in team1_indices]
+                team2 = [players[i] for i in range(10) if i not in team1_indices]
+                
+                team1_score = sum(player[2] for player in team1)
+                team2_score = sum(player[2] for player in team2)
+                
+                diff = abs(team1_score - team2_score)
+                if diff < best_diff:
+                    best_diff = diff
+                    best_team1 = team1
+                    best_team2 = team2
+            
+            # Calculate total scores
+            team1_score = sum(player[2] for player in best_team1)
+            team2_score = sum(player[2] for player in best_team2)
             
             # Create response embed
-            embed = discord.Embed(title="Balanced Teams", color=0x00ff00)
-            embed.add_field(name="Team 1", value="\n".join(team1), inline=True)
-            embed.add_field(name="Team 2", value="\n".join(team2), inline=True)
-            embed.add_field(name="Team Scores", value=f"Team 1: {team1_score:.1f}\nTeam 2: {team2_score:.1f}", inline=False)
+            embed = discord.Embed(title="Balanced Teams (5v5)", color=0x00ff00)
+            
+            # Show tier point values
+            tier_info = "**Tier Point Values:**\n"
+            tier_info += "\n".join([f"{tier}: {points} points" for tier, points in sorted(TIER_POINTS.items(), key=lambda x: x[1])])
+            embed.add_field(name="Ranking System", value=tier_info, inline=False)
+            
+            # Show teams with detailed information
+            team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team1])
+            team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team2])
+            
+            embed.add_field(name=f"Team 1 (Total: {team1_score:.1f} pts)", value=team1_info, inline=True)
+            embed.add_field(name=f"Team 2 (Total: {team2_score:.1f} pts)", value=team2_info, inline=True)
+            
+            # Add score difference
+            embed.add_field(name="Balance Info", 
+                          value=f"Point Difference: {abs(team1_score - team2_score):.1f} points",
+                          inline=False)
             
             await ctx.send(embed=embed)
             return
-        except json.JSONDecodeError:
-            # Not JSON, treat as summoner name
-            pass
+            
+        except Exception as e:
+            await ctx.send(f"Error creating teams. Make sure you're using the correct format:\n#leagueofflex team player1 rank1 player2 rank2 ...")
+            print(f"Error: {str(e)}")  # For debugging
+            return
     
-    # Handle single summoner lookup
-    args = input_text.split()
-    summoner_name = args[0]
-    champion_name = args[1] if len(args) > 1 else None
-    
-    summoner = await get_summoner_data(summoner_name)
-    if not summoner:
-        await ctx.send(f"Could not find summoner: {summoner_name}")
-        return
-    
-    matches = await get_match_history(summoner['puuid'])
-    if not matches:
-        await ctx.send(f"Could not fetch match history for: {summoner_name}")
-        return
-    
-    # Create response embed
-    embed = discord.Embed(title=f"Summoner Profile: {summoner_name}", color=0x00ff00)
-    
-    # Add match history
-    match_history = ""
-    for match in matches:
-        for participant in match['info']['participants']:
-            if participant['puuid'] == summoner['puuid']:
-                champion = participant['championName']
-                kda = f"{participant['kills']}/{participant['deaths']}/{participant['assists']}"
-                win = "Won" if participant['win'] else "Lost"
-                
-                if champion_name:
-                    if champion.lower() == champion_name.lower():
-                        match_history += f"{champion}: {kda} - {win}\n"
-                else:
-                    match_history += f"{champion}: {kda} - {win}\n"
-    
-    embed.add_field(name="Recent Matches", value=match_history if match_history else "No matches found", inline=False)
-    await ctx.send(embed=embed)
+    else:
+        await ctx.send("Please use the team balancing command format:\n#leagueofflex team player1 rank1 player2 rank2 ...")
 
 # Run the bot
 bot.run(DISCORD_TOKEN)
