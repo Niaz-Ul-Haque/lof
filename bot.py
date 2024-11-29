@@ -35,19 +35,85 @@ TIER_POINTS = {
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
 
+def format_tier_points():
+    """Format tier points in a more compact way"""
+    tiers = {
+        "Iron": ["I4", "I3", "I2", "I1"],
+        "Bronze": ["B4", "B3", "B2", "B1"],
+        "Silver": ["S4", "S3", "S2", "S1"],
+        "Gold": ["G4", "G3", "G2", "G1"],
+        "Platinum": ["P4", "P3", "P2", "P1"],
+        "Emerald": ["E4", "E3", "E2", "E1"],
+        "Diamond": ["D4", "D3", "D2", "D1"],
+        "Special": ["M", "GM", "C"]
+    }
+    
+    formatted_tiers = []
+    for tier_name, ranks in tiers.items():
+        if tier_name == "Special":
+            tier_str = "Master: 16.0 | Grandmaster: 18.0 | Challenger: 20.0"
+        else:
+            points = [f"{rank}: {TIER_POINTS[rank]}" for rank in ranks]
+            tier_str = f"{tier_name}: {' | '.join(points)}"
+        formatted_tiers.append(tier_str)
+    
+    return formatted_tiers
+
 @bot.command(name='leagueofflex')
 async def league_flex(ctx, *, input_text=None):
     if not input_text:
-        await ctx.send("For team balancing use: #leagueofflex team player1 rank1 player2 rank2 ...")
+        await ctx.send("Please use `#leagueofflex help` for command information.")
         return
     
     args = input_text.split()
+    command = args[0].lower()
+
+    # Help command
+    if command == 'help':
+        embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
+        embed.add_field(name="Available Commands", value=(
+            "1. `#leagueofflex team [player1] [rank1] [player2] [rank2] ...`\n"
+            "   - Creates balanced 5v5 teams\n"
+            "   - Requires exactly 10 players with their ranks\n\n"
+            "2. `#leagueofflex tiers`\n"
+            "   - Shows all tier point values\n\n"
+            "3. `#leagueofflex help`\n"
+            "   - Shows this help message"
+        ), inline=False)
+        
+        embed.add_field(name="Example Team Command", value=(
+            "`#leagueofflex team Player1 D4 Player2 G1 Player3 P2 Player4 S3 Player5 B2 "
+            "Player6 D2 Player7 P4 Player8 G3 Player9 S1 Player10 B4`"
+        ), inline=False)
+        
+        embed.add_field(name="Valid Ranks", value=(
+            "Iron: I4-I1\n"
+            "Bronze: B4-B1\n"
+            "Silver: S4-S1\n"
+            "Gold: G4-G1\n"
+            "Platinum: P4-P1\n"
+            "Emerald: E4-E1\n"
+            "Diamond: D4-D1\n"
+            "Special: M (Master), GM (Grandmaster), C (Challenger)"
+        ), inline=False)
+        
+        await ctx.send(embed=embed)
+        return
+
+    # Tiers command
+    if command == 'tiers':
+        embed = discord.Embed(title="League of Legends Rank Point Values", color=0x00ff00)
+        for tier_str in format_tier_points():
+            name, values = tier_str.split(': ', 1)
+            embed.add_field(name=name, value=values, inline=False)
+        await ctx.send(embed=embed)
+        return
     
-    # Check if it's a team balancing request
-    if args[0].lower() == 'team':
+    # Team balancing command
+    if command == 'team':
         args = args[1:]  # Remove 'team' from args
-        if len(args) < 20:  # Need 20 args for 10 players (name + rank for each)
-            await ctx.send("For team balancing, provide 10 players with their ranks.\nFormat: #leagueofflex team player1 rank1 player2 rank2 ...")
+        if len(args) < 20:
+            await ctx.send("For team balancing, provide 10 players with their ranks.\nUse `#leagueofflex help` for more information.")
             return
         
         try:
@@ -55,9 +121,9 @@ async def league_flex(ctx, *, input_text=None):
             players = []
             for i in range(0, 20, 2):
                 player_name = args[i]
-                player_rank = args[i+1].upper()  # Convert rank to uppercase
+                player_rank = args[i+1].upper()
                 if player_rank not in TIER_POINTS:
-                    await ctx.send(f"Invalid rank '{player_rank}' for player '{player_name}'. Valid ranks: I4-I1, B4-B1, S4-S1, G4-G1, P4-P1, D4-D1, M, GM, C")
+                    await ctx.send(f"Invalid rank '{player_rank}' for player '{player_name}'. Use `#leagueofflex help` to see valid ranks.")
                     return
                 players.append((player_name, player_rank, TIER_POINTS[player_rank]))
             
@@ -69,7 +135,6 @@ async def league_flex(ctx, *, input_text=None):
             best_team1 = None
             best_team2 = None
             
-            # Try all possible combinations of 5 players
             for team1_indices in combinations(range(10), 5):
                 team1 = [players[i] for i in team1_indices]
                 team2 = [players[i] for i in range(10) if i not in team1_indices]
@@ -90,11 +155,6 @@ async def league_flex(ctx, *, input_text=None):
             # Create response embed
             embed = discord.Embed(title="Balanced Teams (5v5)", color=0x00ff00)
             
-            # Show tier point values
-            tier_info = "**Tier Point Values:**\n"
-            tier_info += "\n".join([f"{tier}: {points} points" for tier, points in sorted(TIER_POINTS.items(), key=lambda x: x[1])])
-            embed.add_field(name="Ranking System", value=tier_info, inline=False)
-            
             # Show teams with detailed information
             team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team1])
             team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team2])
@@ -107,16 +167,19 @@ async def league_flex(ctx, *, input_text=None):
                           value=f"Point Difference: {abs(team1_score - team2_score):.1f} points",
                           inline=False)
             
+            # Add tier point values at the bottom
+            embed.add_field(name="Ranking System", value="\n".join(format_tier_points()), inline=False)
+            
             await ctx.send(embed=embed)
             return
             
         except Exception as e:
-            await ctx.send(f"Error creating teams. Make sure you're using the correct format:\n#leagueofflex team player1 rank1 player2 rank2 ...")
+            await ctx.send("Error creating teams. Use `#leagueofflex help` for the correct format.")
             print(f"Error: {str(e)}")  # For debugging
             return
     
     else:
-        await ctx.send("Please use the team balancing command format:\n#leagueofflex team player1 rank1 player2 rank2 ...")
+        await ctx.send("Unknown command. Use `#leagueofflex help` for available commands.")
 
 # Run the bot
 bot.run(DISCORD_TOKEN)
