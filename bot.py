@@ -53,7 +53,7 @@ def format_tier_points():
     formatted_tiers = []
     for tier_name, ranks in tiers.items():
         if tier_name == "Special":
-            tier_str = "Master: 16.0 | Grandmaster: 18.0 | Challenger: 20.0"
+            tier_str = "Master: 23.0 | Grandmaster: 27.0 | Challenger: 30.0"
         else:
             points = [f"{rank}: {TIER_POINTS[rank]}" for rank in ranks]
             tier_str = f"{tier_name}: {' | '.join(points)}"
