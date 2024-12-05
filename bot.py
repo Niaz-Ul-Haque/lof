@@ -18,7 +18,6 @@ intents.presences = True
 bot = commands.Bot(command_prefix='#', intents=intents)
 
 # Tier points mapping
-# Tier points mapping with moderate increases
 TIER_POINTS = {
     "I4": 1.0, "I3": 1.3, "I2": 1.6, "I1": 1.9,
     "B4": 2.3, "B3": 2.7, "B2": 3.1, "B1": 3.5,
@@ -32,6 +31,7 @@ TIER_POINTS = {
     "C": 30.0    
 }
 
+player_pool = []
 
 @bot.event
 async def on_ready():
@@ -80,7 +80,11 @@ async def league_flex(ctx, *, input_text=None):
             "2. `#leagueofflex tiers`\n"
             "   - Shows all tier point values\n\n"
             "3. `#leagueofflex help`\n"
-            "   - Shows this help message"
+            "   - Shows this help message\n\n"
+            "4. `#join [rank]`\n"
+            "   - Join the player pool for a quick match\n\n"
+            "5. `#tournament [player1] [rank1] [player2] [rank2] ...`\n"
+            "   - Create teams for a tournament with multiple players"
         ), inline=False)
         
         embed.add_field(name="Example Team Command", value=(
@@ -110,8 +114,8 @@ async def league_flex(ctx, *, input_text=None):
             embed.add_field(name=name, value=values, inline=False)
         await ctx.send(embed=embed)
         return
-    
-    # Team balancing command
+
+    # Team balancing command (Manual input of players)
     if command == 'team':
         args = args[1:]  # Remove 'team' from args
         if len(args) < 20:
@@ -119,7 +123,6 @@ async def league_flex(ctx, *, input_text=None):
             return
         
         try:
-            # Process players in pairs (name, rank)
             players = []
             for i in range(0, 20, 2):
                 player_name = args[i]
@@ -129,59 +132,109 @@ async def league_flex(ctx, *, input_text=None):
                     return
                 players.append((player_name, player_rank, TIER_POINTS[player_rank]))
             
-            # Sort players by score
-            players.sort(key=lambda x: x[2], reverse=True)
-            
-            # Find the most balanced 5v5 combination
-            best_diff = float('inf')
-            best_team1 = None
-            best_team2 = None
-            
-            for team1_indices in combinations(range(10), 5):
-                team1 = [players[i] for i in team1_indices]
-                team2 = [players[i] for i in range(10) if i not in team1_indices]
-                
-                team1_score = sum(player[2] for player in team1)
-                team2_score = sum(player[2] for player in team2)
-                
-                diff = abs(team1_score - team2_score)
-                if diff < best_diff:
-                    best_diff = diff
-                    best_team1 = team1
-                    best_team2 = team2
-            
-            # Calculate total scores
-            team1_score = sum(player[2] for player in best_team1)
-            team2_score = sum(player[2] for player in best_team2)
-            
-            # Create response embed
-            embed = discord.Embed(title="Balanced Teams (5v5)", color=0x00ff00)
-            
-            # Show teams with detailed information
-            team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team1])
-            team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team2])
-            
-            embed.add_field(name=f"Team 1 (Total: {team1_score:.1f} pts)", value=team1_info, inline=True)
-            embed.add_field(name=f"Team 2 (Total: {team2_score:.1f} pts)", value=team2_info, inline=True)
-            
-            # Add score difference
-            embed.add_field(name="Balance Info", 
-                          value=f"Point Difference: {abs(team1_score - team2_score):.1f} points",
-                          inline=False)
-            
-            # Add tier point values at the bottom
-            embed.add_field(name="Ranking System", value="\n".join(format_tier_points()), inline=False)
-            
-            await ctx.send(embed=embed)
-            return
-            
+            await create_balanced_teams(ctx, players)
+
         except Exception as e:
             await ctx.send("Error creating teams. Use `#leagueofflex help` for the correct format.")
             print(f"Error: {str(e)}")  # For debugging
             return
-    
-    else:
-        await ctx.send("Unknown command. Use `#leagueofflex help` for available commands.")
+
+# Player Queue Command
+@bot.command(name='join')
+async def join(ctx, rank: str):
+    rank = rank.upper()
+    if rank not in TIER_POINTS:
+        await ctx.send(f"Invalid rank '{rank}'. Use `#leagueofflex help` to see valid ranks.")
+        return
+
+    player_name = ctx.author.name
+    player_info = (player_name, rank, TIER_POINTS[rank])
+
+    if player_info in player_pool:
+        await ctx.send(f"{player_name} is already in the queue.")
+        return
+
+    player_pool.append(player_info)
+    await ctx.send(f"{player_name} joined the queue as {rank}.")
+
+    if len(player_pool) >= 10:
+        await create_balanced_teams(ctx, player_pool[:10])
+        del player_pool[:10]
+
+async def create_balanced_teams(ctx, players):
+    best_diff = float('inf')
+    best_team1 = None
+    best_team2 = None
+
+    for team1_indices in combinations(range(10), 5):
+        team1 = [players[i] for i in team1_indices]
+        team2 = [players[i] for i in range(10) if i not in team1_indices]
+
+        team1_score = sum(player[2] for player in team1)
+        team2_score = sum(player[2] for player in team2)
+
+        diff = abs(team1_score - team2_score)
+        if diff < best_diff:
+            best_diff = diff
+            best_team1 = team1
+            best_team2 = team2
+
+    embed = discord.Embed(title="Balanced Teams (5v5)", color=0x00ff00)
+
+    team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team1])
+    team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team2])
+
+    embed.add_field(name=f"Team 1", value=team1_info, inline=True)
+    embed.add_field(name=f"Team 2", value=team2_info, inline=True)
+    embed.add_field(name="Balance Info", value=f"Point Difference: {best_diff:.1f} points", inline=False)
+
+    await ctx.send(embed=embed)
+
+# Tournament Command
+@bot.command(name='tournament')
+async def tournament(ctx, *, input_text=None):
+    if not input_text:
+        await ctx.send("Please provide players and their ranks. Example: `#leagueofflex tournament Player1 D4 Player2 G1 ...`")
+        return
+
+    args = input_text.split()
+    if len(args) % 2 != 0:
+        await ctx.send("Incorrect input format. Each player must have a rank. Use `#leagueofflex help` for more information.")
+        return
+
+    players = []
+    for i in range(0, len(args), 2):
+        player_name = args[i]
+        player_rank = args[i + 1].upper()
+        if player_rank not in TIER_POINTS:
+            await ctx.send(f"Invalid rank '{player_rank}' for player '{player_name}'. Use `#leagueofflex help` to see valid ranks.")
+            return
+        players.append((player_name, player_rank, TIER_POINTS[player_rank]))
+
+    if len(players) < 5:
+        await ctx.send("Not enough players to form a single team.")
+        return
+
+    team_count = len(players) // 5
+    leftover_players = len(players) % 5
+
+    teams = []
+    for i in range(team_count):
+        teams.append(players[i * 5:(i + 1) * 5])
+
+    embed = discord.Embed(title="Tournament Teams", color=0x00ff00)
+
+    for idx, team in enumerate(teams, start=1):
+        team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team])
+        embed.add_field(name=f"Team {idx}", value=team_info, inline=False)
+
+    if leftover_players > 0:
+        leftovers = players[-leftover_players:]
+        leftover_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in leftovers])
+        embed.add_field(name="Leftover Players", value=leftover_info, inline=False)
+        embed.set_footer(text="These players need more teammates to form a complete team.")
+
+    await ctx.send(embed=embed)
 
 # Run the bot
 bot.run(DISCORD_TOKEN)
