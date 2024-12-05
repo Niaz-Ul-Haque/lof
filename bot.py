@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from itertools import combinations
 import math
+import random
 
 # Load environment variables
 load_dotenv()
@@ -35,16 +36,25 @@ TIER_POINTS = {
 player_pool = []
 tournaments = {}
 
+TEAM_NAMES = [
+    "Thunder Wolves", "Shadow Reapers", "Mystic Titans", "Phoenix Flames", "Silver Serpents",
+    "Night Owls", "Crimson Dragons", "Cyber Knights", "Eclipse Warriors", "Vortex Vipers",
+    "Atomic Hawks", "Quantum Quasars", "Nova Blades", "Storm Riders", "Iron Giants",
+    "Frost Wolves", "Golden Guardians", "Lunar Lions", "Galaxy Raiders", "Mystic Marauders",
+    "Rogue Rebels", "Infinity Squad", "Celestial Cyclones", "Omega Orcas", "Neon Ninjas",
+    "Phantom Falcons", "Solar Spartans", "Cosmic Crusaders", "Venom Valkyries", "Titan Terrors"
+]
+
 class Tournament:
     def __init__(self, name, teams):
         self.name = name
-        self.teams = teams  # List of teams
+        self.teams = teams  # List of teams (each team is a dict with 'name' and 'players')
         self.matches = []   # List of matches in the brackets
         self.create_brackets()
 
     def create_brackets(self):
         """Create initial matches based on teams, balancing first matches as much as possible."""
-        team_scores = [(idx, sum(player[2] for player in team)) for idx, team in enumerate(self.teams)]
+        team_scores = [(idx, sum(player[2] for player in team['players'])) for idx, team in enumerate(self.teams)]
         team_scores.sort(key=lambda x: x[1])
         num_teams = len(self.teams)
         self.matches = []
@@ -54,27 +64,21 @@ class Tournament:
         bracket_size = 2 ** total_rounds
         byes = bracket_size - num_teams
         # Assign byes to top teams
-        for idx, (team_idx, _) in enumerate(team_scores):
-            if idx < byes:
-                # Team gets a bye to next round
-                self.matches.append({
-                    'round': 1,
-                    'match_num': idx + 1,
-                    'team1': team_idx,
-                    'team2': None,
-                    'winner': team_idx
-                })
+        match_num = 1
+        for idx in range(0, num_teams, 2):
+            team1_idx = team_scores[idx][0]
+            if idx + 1 < num_teams:
+                team2_idx = team_scores[idx + 1][0]
             else:
-                # Team plays in first round
-                opponent_idx = team_scores[byes + (idx - byes)][0]
-                self.matches.append({
-                    'round': 1,
-                    'match_num': idx + 1,
-                    'team1': team_idx,
-                    'team2': opponent_idx,
-                    'winner': None
-                })
-                break  # Only pair one match at a time for balancing
+                team2_idx = None
+            self.matches.append({
+                'round': 1,
+                'match_num': match_num,
+                'team1': team1_idx,
+                'team2': team2_idx,
+                'winner': None
+            })
+            match_num += 1
 
     def report_match_result(self, match_num, winning_team_idx):
         """Update the match result and advance the tournament if necessary."""
@@ -101,24 +105,21 @@ class Tournament:
         next_round = self.get_current_round() + 1
         num_winners = len(winners)
         new_matches = []
+        match_num = 1
         for i in range(0, num_winners, 2):
+            team1_idx = winners[i]
             if i + 1 < num_winners:
-                new_matches.append({
-                    'round': next_round,
-                    'match_num': i // 2 + 1,
-                    'team1': winners[i],
-                    'team2': winners[i + 1],
-                    'winner': None
-                })
+                team2_idx = winners[i + 1]
             else:
-                # Odd number of teams; team gets a bye
-                new_matches.append({
-                    'round': next_round,
-                    'match_num': i // 2 + 1,
-                    'team1': winners[i],
-                    'team2': None,
-                    'winner': winners[i]
-                })
+                team2_idx = None
+            new_matches.append({
+                'round': next_round,
+                'match_num': match_num,
+                'team1': team1_idx,
+                'team2': team2_idx,
+                'winner': None
+            })
+            match_num += 1
         self.matches.extend(new_matches)
 
     def display_brackets(self):
@@ -129,10 +130,10 @@ class Tournament:
             matches_in_round = [m for m in self.matches if m['round'] == rnd]
             value = ""
             for m in matches_in_round:
-                team1_name = f"Team {m['team1'] + 1}"
-                team2_name = f"Team {m['team2'] + 1}" if m['team2'] is not None else "Bye"
-                winner = f"Winner: Team {m['winner'] + 1}" if m['winner'] is not None else "In Progress"
-                value += f"Match {m['match_num']}: {team1_name} vs {team2_name} - {winner}\n"
+                team1_name = f"Team {m['team1'] + 1}: {self.teams[m['team1']]['name']}" if m['team1'] is not None else "TBD"
+                team2_name = f"Team {m['team2'] + 1}: {self.teams[m['team2']]['name']}" if m['team2'] is not None else "Bye"
+                winner_name = f"Team {m['winner'] + 1}: {self.teams[m['winner']]['name']}" if m['winner'] is not None else "In Progress"
+                value += f"Match {m['match_num']}: {team1_name} vs {team2_name} - Winner: {winner_name}\n"
             embed.add_field(name=f"Round {rnd}", value=value, inline=False)
         return embed
 
@@ -141,7 +142,7 @@ class Tournament:
         team_idx = team_number - 1
         if team_idx < 0 or team_idx >= len(self.teams):
             return False
-        team = self.teams[team_idx]
+        team = self.teams[team_idx]['players']
         for idx, player in enumerate(team):
             if player[0] == old_member_name:
                 if new_member_rank.upper() not in TIER_POINTS:
@@ -153,15 +154,17 @@ class Tournament:
     def get_team_info(self, team_idx):
         """Return the team information."""
         team = self.teams[team_idx]
-        team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team])
-        return team_info
+        team_name = team['name']
+        players = team['players']
+        team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in players])
+        return team_name, team_info
 
     def get_all_teams_info(self):
         """Return information for all teams."""
         info = ""
         for idx, team in enumerate(self.teams):
-            team_info = self.get_team_info(idx)
-            info += f"Team {idx + 1}:\n{team_info}\n\n"
+            team_name, team_info = self.get_team_info(idx)
+            info += f"{team_name}:\n{team_info}\n\n"
         return info
 
 def format_tier_points():
@@ -188,7 +191,7 @@ def format_tier_points():
 
     return formatted_tiers
 
-def create_balanced_teams(ctx, players):
+def create_balanced_teams(players):
     """Create balanced 5v5 teams from a list of players."""
     best_diff = float('inf')
     best_team1 = None
@@ -207,13 +210,19 @@ def create_balanced_teams(ctx, players):
             best_team1 = team1
             best_team2 = team2
 
+    # Assign team names
+    available_team_names = TEAM_NAMES.copy()
+    random.shuffle(available_team_names)
+    team1_name = available_team_names.pop()
+    team2_name = available_team_names.pop()
+
     embed = discord.Embed(title="Balanced Teams (5v5)", color=0x00ff00)
 
     team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team1])
     team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team2])
 
-    embed.add_field(name=f"Team 1", value=team1_info, inline=True)
-    embed.add_field(name=f"Team 2", value=team2_info, inline=True)
+    embed.add_field(name=f"{team1_name}", value=team1_info, inline=True)
+    embed.add_field(name=f"{team2_name}", value=team2_info, inline=True)
     embed.add_field(name="Balance Info", value=f"Point Difference: {best_diff:.1f} points", inline=False)
 
     return embed
@@ -222,14 +231,19 @@ def create_balanced_tournament_teams(players):
     """Create balanced teams for a tournament."""
     team_size = 5
     num_teams = len(players) // team_size
-    teams = [[] for _ in range(num_teams)]
-    team_points = [0] * num_teams
+    teams = []
+    team_points = []
     players_sorted = sorted(players, key=lambda x: x[2], reverse=True)
+    available_team_names = TEAM_NAMES.copy()
+    random.shuffle(available_team_names)
+    for _ in range(num_teams):
+        teams.append({'name': available_team_names.pop(), 'players': []})
+        team_points.append(0)
     for player in players_sorted:
         # Assign to the team with the lowest total points
         min_team_idx = team_points.index(min(team_points))
-        if len(teams[min_team_idx]) < team_size:
-            teams[min_team_idx].append(player)
+        if len(teams[min_team_idx]['players']) < team_size:
+            teams[min_team_idx]['players'].append(player)
             team_points[min_team_idx] += player[2]
     return teams
 
@@ -251,7 +265,7 @@ async def league_flex(ctx, *, input_text=None):
         embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
         embed.add_field(name="Available Commands", value=(
             "1. `#leagueofflex team [player1] [rank1] [player2] [rank2] ...`\n"
-            "   - Creates balanced 5v5 teams\n"
+            "   - Creates balanced 5v5 teams with team names\n"
             "   - Requires exactly 10 players with their ranks\n\n"
             "2. `#leagueofflex tiers`\n"
             "   - Shows all tier point values\n\n"
@@ -279,7 +293,9 @@ async def league_flex(ctx, *, input_text=None):
             "Platinum: P4-P1\n"
             "Emerald: E4-E1\n"
             "Diamond: D4-D1\n"
-            "Special: M (Master), GM (Grandmaster), C (Challenger)"
+            "Master: M\n"
+            "Grandmaster: GM\n"
+            "Challenger: C"
         ), inline=False)
 
         await ctx.send(embed=embed)
@@ -316,7 +332,7 @@ async def league_flex(ctx, *, input_text=None):
         await ctx.send(f"{player_name} joined the queue as {rank}.")
 
         if len(player_pool) >= 10:
-            embed = create_balanced_teams(ctx, player_pool[:10])
+            embed = create_balanced_teams(player_pool[:10])
             await ctx.send(embed=embed)
             del player_pool[:10]
         return
@@ -338,7 +354,7 @@ async def league_flex(ctx, *, input_text=None):
                     return
                 players.append((player_name, player_rank, TIER_POINTS[player_rank]))
 
-            embed = create_balanced_teams(ctx, players)
+            embed = create_balanced_teams(players)
             await ctx.send(embed=embed)
 
         except Exception as e:
@@ -382,9 +398,10 @@ async def league_flex(ctx, *, input_text=None):
             # Display teams and their members with team points
             embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
             for idx, team in enumerate(teams):
-                team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team])
-                team_points = sum(player[2] for player in team)
-                embed.add_field(name=f"Team {idx +1} - {team_points:.1f} pts", value=team_info, inline=False)
+                team_name = team['name']
+                team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+                team_points = sum(player[2] for player in team['players'])
+                embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
             await ctx.send(embed=embed)
             # Also display the brackets
             embed = tournament.display_brackets()
@@ -398,14 +415,14 @@ async def league_flex(ctx, *, input_text=None):
                 return
             tournament_name = args[0]
             match_number = int(args[1])
-            winning_team_number = int(args[2])
+            winning_team_number = int(args[2]) -1
             tournament = tournaments.get(tournament_name)
             if not tournament:
                 await ctx.send(f"Tournament '{tournament_name}' not found.")
                 return
-            success = tournament.report_match_result(match_number, winning_team_number -1)
+            success = tournament.report_match_result(match_number, winning_team_number)
             if success:
-                await ctx.send(f"Updated match {match_number} with winner Team {winning_team_number}.")
+                await ctx.send(f"Updated match {match_number} with winner Team {winning_team_number +1}: {tournament.teams[winning_team_number]['name']}.")
                 # Display updated brackets
                 embed = tournament.display_brackets()
                 await ctx.send(embed=embed)
@@ -439,9 +456,10 @@ async def league_flex(ctx, *, input_text=None):
                 return
             embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
             for idx, team in enumerate(tournament.teams):
-                team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team])
-                team_points = sum(player[2] for player in team)
-                embed.add_field(name=f"Team {idx +1} - {team_points:.1f} pts", value=team_info, inline=False)
+                team_name = team['name']
+                team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+                team_points = sum(player[2] for player in team['players'])
+                embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
             await ctx.send(embed=embed)
             return
         elif subcommand == 'update_member':
@@ -461,13 +479,14 @@ async def league_flex(ctx, *, input_text=None):
                 return
             success = tournament.update_member(team_number, old_member_name, new_member_name, new_member_rank)
             if success:
-                await ctx.send(f"Updated Team {team_number}: replaced '{old_member_name}' with '{new_member_name}' ({new_member_rank}).")
+                await ctx.send(f"Updated Team {team_number}: {tournament.teams[team_number -1]['name']}: replaced '{old_member_name}' with '{new_member_name}' ({new_member_rank}).")
                 # Display updated teams
                 embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
                 for idx, team in enumerate(tournament.teams):
-                    team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team])
-                    team_points = sum(player[2] for player in team)
-                    embed.add_field(name=f"Team {idx +1} - {team_points:.1f} pts", value=team_info, inline=False)
+                    team_name = team['name']
+                    team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+                    team_points = sum(player[2] for player in team['players'])
+                    embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
                 await ctx.send(embed=embed)
             else:
                 await ctx.send("Failed to update member.")
