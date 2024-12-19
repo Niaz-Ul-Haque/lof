@@ -19,37 +19,37 @@ intents.members = True
 intents.presences = True
 bot = commands.Bot(command_prefix='#', intents=intents)
 
-# Tier points mapping
+# Updated Tier Points Mapping
 TIER_POINTS = {
-    "I4": 1.0, "I3": 1.3, "I2": 1.6, "I1": 1.9,
-    "B4": 2.3, "B3": 2.7, "B2": 3.1, "B1": 3.5,
-    "S4": 4.0, "S3": 4.6, "S2": 5.2, "S1": 5.8,
-    "G4": 6.5, "G3": 7.2, "G2": 7.9, "G1": 8.6,
-    "P4": 9.4, "P3": 10.2, "P2": 11.0, "P1": 11.8,
-    "E4": 12.8, "E3": 13.8, "E2": 14.8, "E1": 15.8,
-    "D4": 17.0, "D3": 18.2, "D2": 19.4, "D1": 20.6,
-    "M": 23.0,  # Master
-    "GM": 27.0, # Grandmaster
-    "C": 30.0   # Challenger
+    "I": 1.0,     # Iron
+    "IB": 2.0,    # Iron-Bronze
+    "B": 3.0,     # Bronze
+    "BS": 4.0,    # Bronze-Silver
+    "S": 5.0,     # Silver
+    "SG": 6.5,    # Silver-Gold
+    "G": 8.0,     # Gold
+    "GP": 9.5,    # Gold-Platinum
+    "P": 11.0,    # Platinum
+    "PE": 13.0,   # Platinum-Emerald
+    "E": 15.0,    # Emerald
+    "ED": 17.0,   # Emerald-Diamond
+    "D": 19.0,    # Diamond
+    "DM": 21.5,   # Diamond-Master
+    "M": 24.0,    # Master
+    "GM": 27.0,   # Grandmaster
+    "C": 30.0     # Challenger
 }
 
 player_pool = []
 tournaments = {}
 
-TEAM_NAMES = [
-    "Thunder Wolves", "Shadow Reapers", "Mystic Titans", "Phoenix Flames", "Silver Serpents",
-    "Night Owls", "Crimson Dragons", "Cyber Knights", "Eclipse Warriors", "Vortex Vipers",
-    "Atomic Hawks", "Quantum Quasars", "Nova Blades", "Storm Riders", "Iron Giants",
-    "Frost Wolves", "Golden Guardians", "Lunar Lions", "Galaxy Raiders", "Mystic Marauders",
-    "Rogue Rebels", "Infinity Squad", "Celestial Cyclones", "Omega Orcas", "Neon Ninjas",
-    "Phantom Falcons", "Solar Spartans", "Cosmic Crusaders", "Venom Valkyries", "Titan Terrors"
-]
-
 class Tournament:
-    def __init__(self, name, teams):
+    def __init__(self, name, teams, commentators=None, staffs=None):
         self.name = name
         self.teams = teams  # List of teams (each team is a dict with 'name' and 'players')
         self.matches = []   # List of matches in the brackets
+        self.commentators = commentators or []  # Max 2 commentators
+        self.staffs = staffs or []  # Additional staff members
         self.create_brackets()
 
     def create_brackets(self):
@@ -58,19 +58,13 @@ class Tournament:
         team_scores.sort(key=lambda x: x[1])
         num_teams = len(self.teams)
         self.matches = []
-        # Calculate number of rounds needed
         total_rounds = math.ceil(math.log2(num_teams))
-        # Pad teams to make the number a power of 2
         bracket_size = 2 ** total_rounds
         byes = bracket_size - num_teams
-        # Assign byes to top teams
         match_num = 1
         for idx in range(0, num_teams, 2):
             team1_idx = team_scores[idx][0]
-            if idx + 1 < num_teams:
-                team2_idx = team_scores[idx + 1][0]
-            else:
-                team2_idx = None
+            team2_idx = team_scores[idx + 1][0] if idx + 1 < num_teams else None
             self.matches.append({
                 'round': 1,
                 'match_num': match_num,
@@ -87,8 +81,8 @@ class Tournament:
                 match['winner'] = winning_team_idx
                 break
         else:
-            # Match not found
-            return False
+            return False  # Match not found
+
         # Proceed to next round if all matches in the current round are completed
         if all(m['winner'] is not None for m in self.matches if m['round'] == self.get_current_round()):
             self.advance_to_next_round()
@@ -137,62 +131,23 @@ class Tournament:
             embed.add_field(name=f"Round {rnd}", value=value, inline=False)
         return embed
 
-    def update_member(self, team_number, old_member_name, new_member_name, new_member_rank):
-        """Update a member in a team."""
-        team_idx = team_number - 1
-        if team_idx < 0 or team_idx >= len(self.teams):
-            return False
-        team = self.teams[team_idx]['players']
-        for idx, player in enumerate(team):
-            if player[0] == old_member_name:
-                if new_member_rank.upper() not in TIER_POINTS:
-                    return False
-                team[idx] = (new_member_name, new_member_rank.upper(), TIER_POINTS[new_member_rank.upper()])
-                return True
+    def update_team_name(self, team_number, new_name):
+        """Update the name of a team."""
+        if 0 <= team_number < len(self.teams):
+            self.teams[team_number]['name'] = new_name
+            return True
         return False
 
-    def get_team_info(self, team_idx):
-        """Return the team information."""
-        team = self.teams[team_idx]
-        team_name = team['name']
-        players = team['players']
-        team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in players])
-        return team_name, team_info
+    def clear_all(self):
+        """Clear all data from the tournament."""
+        self.teams.clear()
+        self.matches.clear()
+        self.commentators.clear()
+        self.staffs.clear()
 
-    def get_all_teams_info(self):
-        """Return information for all teams."""
-        info = ""
-        for idx, team in enumerate(self.teams):
-            team_name, team_info = self.get_team_info(idx)
-            info += f"{team_name}:\n{team_info}\n\n"
-        return info
-
-def format_tier_points():
-    """Format tier points in a more compact way."""
-    tiers = {
-        "Iron": ["I4", "I3", "I2", "I1"],
-        "Bronze": ["B4", "B3", "B2", "B1"],
-        "Silver": ["S4", "S3", "S2", "S1"],
-        "Gold": ["G4", "G3", "G2", "G1"],
-        "Platinum": ["P4", "P3", "P2", "P1"],
-        "Emerald": ["E4", "E3", "E2", "E1"],
-        "Diamond": ["D4", "D3", "D2", "D1"],
-        "Special": ["M", "GM", "C"]
-    }
-
-    formatted_tiers = []
-    for tier_name, ranks in tiers.items():
-        if tier_name == "Special":
-            tier_str = "Master: 23.0 | Grandmaster: 27.0 | Challenger: 30.0"
-        else:
-            points = [f"{rank}: {TIER_POINTS[rank]}" for rank in ranks]
-            tier_str = f"{tier_name}: {' | '.join(points)}"
-        formatted_tiers.append(tier_str)
-
-    return formatted_tiers
-
+# Utility Functions
 def create_balanced_teams(players):
-    """Create balanced 5v5 teams from a list of players."""
+    """Create balanced 5v5 teams with fixed names 'Team 1' and 'Team 2'."""
     best_diff = float('inf')
     best_team1 = None
     best_team2 = None
@@ -210,290 +165,130 @@ def create_balanced_teams(players):
             best_team1 = team1
             best_team2 = team2
 
-    # Assign team names
-    available_team_names = TEAM_NAMES.copy()
-    random.shuffle(available_team_names)
-    team1_name = available_team_names.pop()
-    team2_name = available_team_names.pop()
-
     embed = discord.Embed(title="Balanced Teams (5v5)", color=0x00ff00)
 
     team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team1])
     team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team2])
 
-    embed.add_field(name=f"{team1_name}", value=team1_info, inline=True)
-    embed.add_field(name=f"{team2_name}", value=team2_info, inline=True)
+    embed.add_field(name="Team 1", value=team1_info, inline=True)
+    embed.add_field(name="Team 2", value=team2_info, inline=True)
     embed.add_field(name="Balance Info", value=f"Point Difference: {best_diff:.1f} points", inline=False)
 
     return embed
 
-def create_balanced_tournament_teams(players):
-    """Create balanced teams for a tournament."""
-    team_size = 5
-    num_teams = len(players) // team_size
-    teams = []
-    team_points = []
-    players_sorted = sorted(players, key=lambda x: x[2], reverse=True)
-    available_team_names = TEAM_NAMES.copy()
-    random.shuffle(available_team_names)
-    for _ in range(num_teams):
-        teams.append({'name': available_team_names.pop(), 'players': []})
-        team_points.append(0)
-    for player in players_sorted:
-        # Assign to the team with the lowest total points
-        min_team_idx = team_points.index(min(team_points))
-        if len(teams[min_team_idx]['players']) < team_size:
-            teams[min_team_idx]['players'].append(player)
-            team_points[min_team_idx] += player[2]
-    return teams
-
+# Commands
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
 
-@bot.command(name='leagueofflex')
-async def league_flex(ctx, *, input_text=None):
-    if not input_text:
-        await ctx.send("Please use `#leagueofflex help` for command information.")
+@bot.command(name='help')
+async def help_command(ctx):
+    """Display help for all commands."""
+    embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
+    embed.add_field(name="Available Commands", value=(
+        "1. `#help`\n   - Show this help message\n\n"
+        "2. `#leagueofflex join [name] [rank]`\n   - Add a player to the matchmaking pool\n\n"
+        "3. `#leagueofflex team [player1 rank1 ...]`\n   - Generate balanced 5v5 teams\n\n"
+        "4. `#leagueofflex tiers`\n   - Show all ranks and their associated point values\n\n"
+        "5. `#leagueofflex tournament create [name] [player1 rank1 ...]`\n   - Create a tournament\n\n"
+        "6. `#leagueofflex tournament help [name]`\n   - Show detailed tournament info\n\n"
+        "7. `#leagueofflex tournament players [name]`\n   - List all players in a tournament\n\n"
+        "8. `#leagueofflex tournament brackets [name]`\n   - Show tournament brackets\n\n"
+        "9. `#leagueofflex tournament update_team [name] [team_number] [new_name]`\n   - Update team name\n\n"
+        "10. `#leagueofflex clear`\n   - Clear all data (tournaments, players, matches)"
+    ), inline=False)
+    embed.add_field(name="Rank Info", value="Ranks: I, IB, B, BS, S, SG, G, GP, P, PE, E, ED, D, DM, M, GM, C", inline=False)
+    await ctx.send(embed=embed)
+
+@bot.command(name='tiers')
+async def tiers_command(ctx):
+    """Display the tier system and associated points."""
+    embed = discord.Embed(title="League of Legends Rank Point Values", color=0x00ff00)
+    for tier, points in TIER_POINTS.items():
+        embed.add_field(name=tier, value=f"{points} points", inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command(name='clear')
+async def clear_command(ctx):
+    """Clear all tournaments, teams, players, and matches."""
+    player_pool.clear()
+    tournaments.clear()
+    await ctx.send("All data cleared: tournaments, teams, players, and matches.")
+
+@bot.command(name='tournament_help')
+async def tournament_help(ctx, tournament_name=None):
+    """Show detailed information about a specific tournament."""
+    if not tournament_name:
+        await ctx.send("Please specify a tournament name. Example: `#tournament_help [tournament_name]`")
         return
 
-    args = input_text.split()
-    command = args[0].lower()
-
-    # Help command
-    if command == 'help':
-        embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
-        embed.add_field(name="Available Commands", value=(
-            "1. `#leagueofflex team [player1] [rank1] [player2] [rank2] ...`\n"
-            "   - Creates balanced 5v5 teams with team names\n"
-            "   - Requires exactly 10 players with their ranks\n\n"
-            "2. `#leagueofflex tiers`\n"
-            "   - Shows all tier point values\n\n"
-            "3. `#leagueofflex help`\n"
-            "   - Shows this help message\n\n"
-            "4. `#leagueofflex join [name] [rank]`\n"
-            "   - Join the player queue for a quick match\n\n"
-            "5. `#leagueofflex tournament create [tournament_name] [player1] [rank1] ...`\n"
-            "   - Create teams for a tournament with multiple players\n\n"
-            "6. `#leagueofflex tournament report [tournament_name] [match_number] [winning_team_number]`\n"
-            "   - Report match results and update brackets\n\n"
-            "7. `#leagueofflex tournament brackets [tournament_name]`\n"
-            "   - Display the current tournament brackets\n\n"
-            "8. `#leagueofflex tournament teams [tournament_name]`\n"
-            "   - Display the teams in the tournament\n\n"
-            "9. `#leagueofflex tournament update_member [tournament_name] [team_number] [old_member_name] [new_member_name] [new_member_rank]`\n"
-            "   - Update a member in a tournament team"
-        ), inline=False)
-
-        embed.add_field(name="Valid Ranks", value=(
-            "Iron: I4-I1\n"
-            "Bronze: B4-B1\n"
-            "Silver: S4-S1\n"
-            "Gold: G4-G1\n"
-            "Platinum: P4-P1\n"
-            "Emerald: E4-E1\n"
-            "Diamond: D4-D1\n"
-            "Master: M\n"
-            "Grandmaster: GM\n"
-            "Challenger: C"
-        ), inline=False)
-
-        await ctx.send(embed=embed)
+    tournament = tournaments.get(tournament_name)
+    if not tournament:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
         return
 
-    # Tiers command
-    if command == 'tiers':
-        embed = discord.Embed(title="League of Legends Rank Point Values", color=0x00ff00)
-        for tier_str in format_tier_points():
-            name, values = tier_str.split(': ', 1)
-            embed.add_field(name=name, value=values, inline=False)
-        await ctx.send(embed=embed)
+    # Create an embed to display the information
+    embed = discord.Embed(title=f"Tournament: {tournament_name}", color=0x00ff00)
+
+    # Add general information
+    embed.add_field(name="Tournament Organizer", value="League of Flex Bot", inline=False)
+    embed.add_field(name="Number of Teams", value=len(tournament.teams), inline=True)
+
+    # Add staff and commentators
+    staff_names = ", ".join(tournament.staffs) if tournament.staffs else "None"
+    commentator_names = ", ".join(tournament.commentators) if tournament.commentators else "None"
+    embed.add_field(name="Staff Members", value=staff_names, inline=True)
+    embed.add_field(name="Commentators", value=commentator_names, inline=True)
+
+    # Add teams and players
+    for idx, team in enumerate(tournament.teams):
+        team_name = team['name']
+        players_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+        embed.add_field(name=f"Team {idx + 1}: {team_name}", value=players_info, inline=False)
+
+    # Add current match bracket info
+    if tournament.matches:
+        brackets = "\n".join([
+            f"Match {match['match_num']}: {tournament.teams[match['team1']]['name']} vs "
+            f"{tournament.teams[match['team2']]['name'] if match['team2'] is not None else 'Bye'}"
+            for match in tournament.matches
+        ])
+        embed.add_field(name="Current Brackets", value=brackets, inline=False)
+    else:
+        embed.add_field(name="Current Brackets", value="No matches available yet.", inline=False)
+
+    await ctx.send(embed=embed)
+
+@bot.command(name='tournament_players')
+async def tournament_players(ctx, tournament_name=None):
+    """Show all players in a tournament, sorted by their rank tier."""
+    if not tournament_name:
+        await ctx.send("Please specify a tournament name. Example: `#tournament_players [tournament_name]`")
         return
 
-    # Join command
-    if command == 'join':
-        args = args[1:]  # Remove 'join' from args
-        if len(args) != 2:
-            await ctx.send("Please provide a name and rank. Example: `#leagueofflex join Player1 D4`")
-            return
-        player_name = args[0]
-        rank = args[1].upper()
-        if rank not in TIER_POINTS:
-            await ctx.send(f"Invalid rank '{rank}'. Use `#leagueofflex help` to see valid ranks.")
-            return
-
-        player_info = (player_name, rank, TIER_POINTS[rank])
-
-        if player_info in player_pool:
-            await ctx.send(f"{player_name} is already in the queue.")
-            return
-
-        player_pool.append(player_info)
-        await ctx.send(f"{player_name} joined the queue as {rank}.")
-
-        if len(player_pool) >= 10:
-            embed = create_balanced_teams(player_pool[:10])
-            await ctx.send(embed=embed)
-            del player_pool[:10]
+    tournament = tournaments.get(tournament_name)
+    if not tournament:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
         return
 
-    # Team balancing command (Manual input of players)
-    if command == 'team':
-        args = args[1:]  # Remove 'team' from args
-        if len(args) < 20:
-            await ctx.send("For team balancing, provide 10 players with their ranks.\nUse `#leagueofflex help` for more information.")
-            return
+    # Gather all players from all teams
+    all_players = []
+    for team in tournament.teams:
+        all_players.extend(team['players'])
 
-        try:
-            players = []
-            for i in range(0, 20, 2):
-                player_name = args[i]
-                player_rank = args[i+1].upper()
-                if player_rank not in TIER_POINTS:
-                    await ctx.send(f"Invalid rank '{player_rank}' for player '{player_name}'. Use `#leagueofflex help` to see valid ranks.")
-                    return
-                players.append((player_name, player_rank, TIER_POINTS[player_rank]))
+    # Sort players by their rank points
+    sorted_players = sorted(all_players, key=lambda x: TIER_POINTS[x[1]])
 
-            embed = create_balanced_teams(players)
-            await ctx.send(embed=embed)
+    # Format the output
+    embed = discord.Embed(title=f"Players in Tournament: {tournament_name}", color=0x00ff00)
+    rank_info = "\n".join([f"{player[0]} - {player[1]} ({TIER_POINTS[player[1]]} pts)" for player in sorted_players])
 
-        except Exception as e:
-            await ctx.send("Error creating teams. Use `#leagueofflex help` for the correct format.")
-            print(f"Error: {str(e)}")  # For debugging
-            return
+    if rank_info:
+        embed.add_field(name="Players (Sorted by Rank)", value=rank_info, inline=False)
+    else:
+        embed.add_field(name="Players", value="No players found.", inline=False)
 
-    # Tournament commands
-    if command == 'tournament':
-        if len(args) < 2:
-            await ctx.send("Please provide a subcommand. Use `#leagueofflex help` for more information.")
-            return
-        subcommand = args[1].lower()
-        if subcommand == 'create':
-            # Create a new tournament
-            args = args[2:]  # Remove 'tournament' and 'create' from args
-            if len(args) < 3:
-                await ctx.send("Please provide a tournament name and players. Example: `#leagueofflex tournament create Tourney1 Player1 D4 Player2 G1 ...`")
-                return
-            tournament_name = args[0]
-            args = args[1:]
-            if len(args) % 2 != 0:
-                await ctx.send("Incorrect input format. Each player must have a rank. Use `#leagueofflex help` for more information.")
-                return
-            players = []
-            for i in range(0, len(args), 2):
-                player_name = args[i]
-                player_rank = args[i + 1].upper()
-                if player_rank not in TIER_POINTS:
-                    await ctx.send(f"Invalid rank '{player_rank}' for player '{player_name}'. Use `#leagueofflex help` to see valid ranks.")
-                    return
-                players.append((player_name, player_rank, TIER_POINTS[player_rank]))
-            if len(players) < 5:
-                await ctx.send("Not enough players to form a single team.")
-                return
-            # Create teams
-            teams = create_balanced_tournament_teams(players)
-            # Create Tournament instance
-            tournament = Tournament(tournament_name, teams)
-            tournaments[tournament_name] = tournament
-            # Display teams and their members with team points
-            embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
-            for idx, team in enumerate(teams):
-                team_name = team['name']
-                team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
-                team_points = sum(player[2] for player in team['players'])
-                embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
-            await ctx.send(embed=embed)
-            # Also display the brackets
-            embed = tournament.display_brackets()
-            await ctx.send(embed=embed)
-            return
-        elif subcommand == 'report':
-            # Report match result
-            args = args[2:]  # Remove 'tournament' and 'report' from args
-            if len(args) != 3:
-                await ctx.send("Usage: `#leagueofflex tournament report [tournament_name] [match_number] [winning_team_number]`")
-                return
-            tournament_name = args[0]
-            match_number = int(args[1])
-            winning_team_number = int(args[2]) -1
-            tournament = tournaments.get(tournament_name)
-            if not tournament:
-                await ctx.send(f"Tournament '{tournament_name}' not found.")
-                return
-            success = tournament.report_match_result(match_number, winning_team_number)
-            if success:
-                await ctx.send(f"Updated match {match_number} with winner Team {winning_team_number +1}: {tournament.teams[winning_team_number]['name']}.")
-                # Display updated brackets
-                embed = tournament.display_brackets()
-                await ctx.send(embed=embed)
-            else:
-                await ctx.send(f"Failed to update match {match_number}.")
-            return
-        elif subcommand == 'brackets':
-            # Display brackets
-            args = args[2:]  # Remove 'tournament' and 'brackets' from args
-            if len(args) !=1:
-                await ctx.send("Usage: `#leagueofflex tournament brackets [tournament_name]`")
-                return
-            tournament_name = args[0]
-            tournament = tournaments.get(tournament_name)
-            if not tournament:
-                await ctx.send(f"Tournament '{tournament_name}' not found.")
-                return
-            embed = tournament.display_brackets()
-            await ctx.send(embed=embed)
-            return
-        elif subcommand == 'teams':
-            # Display teams
-            args = args[2:]  # Remove 'tournament' and 'teams' from args
-            if len(args) !=1:
-                await ctx.send("Usage: `#leagueofflex tournament teams [tournament_name]`")
-                return
-            tournament_name = args[0]
-            tournament = tournaments.get(tournament_name)
-            if not tournament:
-                await ctx.send(f"Tournament '{tournament_name}' not found.")
-                return
-            embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
-            for idx, team in enumerate(tournament.teams):
-                team_name = team['name']
-                team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
-                team_points = sum(player[2] for player in team['players'])
-                embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
-            await ctx.send(embed=embed)
-            return
-        elif subcommand == 'update_member':
-            # Update member in a team
-            args = args[2:]  # Remove 'tournament' and 'update_member' from args
-            if len(args) != 5:
-                await ctx.send("Usage: `#leagueofflex tournament update_member [tournament_name] [team_number] [old_member_name] [new_member_name] [new_member_rank]`")
-                return
-            tournament_name = args[0]
-            team_number = int(args[1])
-            old_member_name = args[2]
-            new_member_name = args[3]
-            new_member_rank = args[4]
-            tournament = tournaments.get(tournament_name)
-            if not tournament:
-                await ctx.send(f"Tournament '{tournament_name}' not found.")
-                return
-            success = tournament.update_member(team_number, old_member_name, new_member_name, new_member_rank)
-            if success:
-                await ctx.send(f"Updated Team {team_number}: {tournament.teams[team_number -1]['name']}: replaced '{old_member_name}' with '{new_member_name}' ({new_member_rank}).")
-                # Display updated teams
-                embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
-                for idx, team in enumerate(tournament.teams):
-                    team_name = team['name']
-                    team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
-                    team_points = sum(player[2] for player in team['players'])
-                    embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
-                await ctx.send(embed=embed)
-            else:
-                await ctx.send("Failed to update member.")
-            return
-        else:
-            await ctx.send("Invalid subcommand for tournament. Use `#leagueofflex help` for more information.")
-            return
+    await ctx.send(embed=embed)
 
 # Run the bot
 bot.run(DISCORD_TOKEN)
