@@ -185,19 +185,27 @@ async def on_ready():
 async def custom_help_command(ctx):
     """Display help for all commands."""
     embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
-    embed.add_field(name="Available Commands", value=(
-        "1. `#guide`\n   - Show this help message\n\n"
-        "2. `#leagueofflex join [name] [rank]`\n   - Add a player to the matchmaking pool\n\n"
-        "3. `#leagueofflex team [player1 rank1 ...]`\n   - Generate balanced 5v5 teams\n\n"
-        "4. `#leagueofflex tiers`\n   - Show all ranks and their associated point values\n\n"
-        "5. `#leagueofflex tournament create [name] [player1 rank1 ...]`\n   - Create a tournament\n\n"
-        "6. `#leagueofflex tournament help [name]`\n   - Show detailed tournament info\n\n"
-        "7. `#leagueofflex tournament players [name]`\n   - List all players in a tournament\n\n"
-        "8. `#leagueofflex tournament brackets [name]`\n   - Show tournament brackets\n\n"
-        "9. `#leagueofflex tournament update_team [name] [team_number] [new_name]`\n   - Update team name\n\n"
-        "10. `#leagueofflex clear`\n   - Clear all data (tournaments, players, matches)"
-    ), inline=False)
-        embed.add_field(name="Rank Info", value="Ranks: I, IB, B, BS, S, SG, G, GP, P, PE, E, ED, D, DM, M, GM, C", inline=False)
+    embed.add_field(
+        name="Available Commands",
+        value=(
+            "1. `#guide`\n   - Show this help message\n\n"
+            "2. `#leagueofflex join [name] [rank]`\n   - Add a player to the matchmaking pool\n\n"
+            "3. `#leagueofflex team [player1 rank1 ...]`\n   - Generate balanced 5v5 teams\n\n"
+            "4. `#leagueofflex tiers`\n   - Show all ranks and their associated point values\n\n"
+            "5. `#leagueofflex tournament create [name] [player1 rank1 ...]`\n   - Create a tournament\n\n"
+            "6. `#leagueofflex tournament help [name]`\n   - Show detailed tournament info\n\n"
+            "7. `#leagueofflex tournament players [name]`\n   - List all players in a tournament\n\n"
+            "8. `#leagueofflex tournament brackets [name]`\n   - Show tournament brackets\n\n"
+            "9. `#leagueofflex tournament update_team [name] [team_number] [new_name]`\n   - Update team name\n\n"
+            "10. `#leagueofflex clear`\n   - Clear all data (tournaments, players, matches)"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Rank Info",
+        value="Ranks: I, IB, B, BS, S, SG, G, GP, P, PE, E, ED, D, DM, M, GM, C",
+        inline=False
+    )
     await ctx.send(embed=embed)
 
 @bot.command(name='tiers')
@@ -207,6 +215,7 @@ async def tiers_command(ctx):
     for tier, points in TIER_POINTS.items():
         embed.add_field(name=tier, value=f"{points} points", inline=True)
     await ctx.send(embed=embed)
+
 
 @bot.command(name='clear')
 async def clear_command(ctx):
