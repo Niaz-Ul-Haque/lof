@@ -6,32 +6,19 @@ from dotenv import load_dotenv
 from itertools import combinations
 import math
 import random
-import json
-import logging
-from typing import List, Dict, Optional, Tuple, Any
-from dataclasses import dataclass, asdict
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger('tournament_bot')
 
 # Load environment variables
 load_dotenv()
 
 # Bot configuration
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-if not DISCORD_TOKEN:
-    raise ValueError("DISCORD_TOKEN not found in environment variables")
 
 # Initialize bot with explicit intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.presences = True
-bot = commands.Bot(command_prefix='!lf ', intents=intents)
+bot = commands.Bot(command_prefix='!lf ', intents=intents, help_command=None)
 
 # Updated Tier points mapping
 TIER_POINTS = {
@@ -54,7 +41,10 @@ TIER_POINTS = {
     "C": 30.0     # Challenger
 }
 
-# Updated Team Names
+player_pool = []
+tournaments = {}
+
+# Updated Team Names with Funny and Country-Related (Dark Humor)
 TEAM_NAMES = [
     "Sasquatch Squad", "Viking Vandals", "Pirate Pythons", "Ninja Nachos", "Zombie Zebras",
     "Wacky Wombats", "Grumpy Geese", "Mad Hooligans", "Crying Cowboys", "Reckless Rhinos",
@@ -64,254 +54,191 @@ TEAM_NAMES = [
     "Grim Griffins", "Moody Meerkats", "Jaded Jaguars", "Perky Porcupines", "Restless Ravers"
 ]
 
-# Global state (with proper typing)
-player_pool: List[Tuple[str, str, float]] = []
-tournaments: Dict[str, 'Tournament'] = {}
-
-@dataclass
-class Player:
-    name: str
-    rank: str
-    points: float
-
-    @staticmethod
-    def from_input(name: str, rank: str) -> 'Player':
-        rank = rank.upper()
-        if rank not in TIER_POINTS:
-            raise ValueError(f"Invalid rank: {rank}")
-        return Player(name=name, rank=rank, points=TIER_POINTS[rank])
-
 class Tournament:
-    def __init__(self, name: str, teams: List[Dict], commentators: Optional[List[str]] = None, staff: Optional[List[str]] = None):
+    def __init__(self, name, teams, commentators=None, staff=None):
         self.name = name
-        self.teams = teams
-        self.matches = []
+        self.teams = teams  # List of teams (each team is a dict with 'name' and 'players')
+        self.matches = []   # List of matches in the brackets
         self.commentators = commentators if commentators else []
         self.staff = staff if staff else []
         self.create_brackets()
     
-    def save_to_file(self) -> None:
-        """Save tournament data to a JSON file."""
-        try:
-            tournament_data = {
-                'name': self.name,
-                'teams': self.teams,
-                'matches': self.matches,
-                'commentators': self.commentators,
-                'staff': self.staff
-            }
-            with open(f'tournament_{self.name}.json', 'w') as f:
-                json.dump(tournament_data, f)
-        except Exception as e:
-            logger.error(f"Failed to save tournament data: {e}")
-            raise
+    def create_brackets(self):
+        """Create initial matches based on teams, balancing first matches as much as possible."""
+        team_scores = [(idx, sum(player[2] for player in team['players'])) for idx, team in enumerate(self.teams)]
+        team_scores.sort(key=lambda x: x[1])
+        num_teams = len(self.teams)
+        self.matches = []
+        # Calculate number of rounds needed
+        total_rounds = math.ceil(math.log2(num_teams))
+        # Pad teams to make the number a power of 2
+        bracket_size = 2 ** total_rounds
+        byes = bracket_size - num_teams
+        # Assign byes to top teams
+        match_num = 1
+        for idx in range(0, num_teams, 2):
+            team1_idx = team_scores[idx][0]
+            if idx + 1 < num_teams:
+                team2_idx = team_scores[idx + 1][0]
+            else:
+                team2_idx = None
+            self.matches.append({
+                'round': 1,
+                'match_num': match_num,
+                'team1': team1_idx,
+                'team2': team2_idx,
+                'winner': None
+            })
+            match_num += 1
 
-    @classmethod
-    def load_from_file(cls, name: str) -> 'Tournament':
-        """Load tournament data from a JSON file."""
-        try:
-            with open(f'tournament_{name}.json', 'r') as f:
-                data = json.load(f)
-                return cls(
-                    name=data['name'],
-                    teams=data['teams'],
-                    commentators=data['commentators'],
-                    staff=data['staff']
-                )
-        except FileNotFoundError:
-            logger.error(f"Tournament file not found: {name}")
-            raise
-        except Exception as e:
-            logger.error(f"Failed to load tournament data: {e}")
-            raise
-
-    def create_brackets(self) -> None:
-        """Create initial matches based on teams, balancing first matches."""
-        try:
-            team_scores = [(idx, sum(player[2] for player in team['players'])) 
-                          for idx, team in enumerate(self.teams)]
-            team_scores.sort(key=lambda x: x[1])
-            num_teams = len(self.teams)
-            
-            # Calculate number of rounds needed
-            total_rounds = math.ceil(math.log2(num_teams))
-            bracket_size = 2 ** total_rounds
-            
-            # Create initial matches
-            match_num = 1
-            for idx in range(0, num_teams, 2):
-                self.matches.append({
-                    'round': 1,
-                    'match_num': match_num,
-                    'team1': team_scores[idx][0],
-                    'team2': team_scores[idx + 1][0] if idx + 1 < num_teams else None,
-                    'winner': None
-                })
-                match_num += 1
-        except Exception as e:
-            logger.error(f"Error creating brackets: {e}")
-            raise
-
-    def report_match_result(self, match_num: int, winning_team_idx: int) -> bool:
-        """Update match result and advance tournament if necessary."""
-        try:
-            current_round = self.get_current_round()
-            match = next((m for m in self.matches 
-                         if m['match_num'] == match_num and m['round'] == current_round), None)
-            
-            if not match:
-                return False
-                
-            match['winner'] = winning_team_idx
-            
-            # Check if round is complete
-            if all(m['winner'] is not None 
-                   for m in self.matches if m['round'] == current_round):
-                self.advance_to_next_round()
-            
-            self.save_to_file()  # Save after updating
-            return True
-        except Exception as e:
-            logger.error(f"Error reporting match result: {e}")
+    def report_match_result(self, match_num, winning_team_idx):
+        """Update the match result and advance the tournament if necessary."""
+        for match in self.matches:
+            if match['match_num'] == match_num and match['round'] == self.get_current_round():
+                match['winner'] = winning_team_idx
+                break
+        else:
+            # Match not found
             return False
+        # Proceed to next round if all matches in the current round are completed
+        if all(m['winner'] is not None for m in self.matches if m['round'] == self.get_current_round()):
+            self.advance_to_next_round()
+        return True
 
-    def get_current_round(self) -> int:
+    def get_current_round(self):
         """Determine the current round based on matches."""
-        return max((m['round'] for m in self.matches), default=0)
+        rounds = [m['round'] for m in self.matches]
+        return max(rounds) if rounds else 0
 
-    def advance_to_next_round(self) -> None:
-        """Create matches for the next round based on winners."""
-        try:
-            current_round = self.get_current_round()
-            winners = [m['winner'] for m in self.matches 
-                      if m['round'] == current_round]
-            
-            next_round = current_round + 1
-            match_num = 1
-            
-            new_matches = []
-            for i in range(0, len(winners), 2):
-                new_matches.append({
-                    'round': next_round,
-                    'match_num': match_num,
-                    'team1': winners[i],
-                    'team2': winners[i + 1] if i + 1 < len(winners) else None,
-                    'winner': None
-                })
-                match_num += 1
-                
-            self.matches.extend(new_matches)
-            self.save_to_file()  # Save after updating
-        except Exception as e:
-            logger.error(f"Error advancing tournament: {e}")
-            raise
+    def advance_to_next_round(self):
+        """Create matches for the next round based on winners of the current round."""
+        winners = [m['winner'] for m in self.matches if m['round'] == self.get_current_round()]
+        next_round = self.get_current_round() + 1
+        num_winners = len(winners)
+        new_matches = []
+        match_num = 1
+        for i in range(0, num_winners, 2):
+            team1_idx = winners[i]
+            if i + 1 < num_winners:
+                team2_idx = winners[i + 1]
+            else:
+                team2_idx = None
+            new_matches.append({
+                'round': next_round,
+                'match_num': match_num,
+                'team1': team1_idx,
+                'team2': team2_idx,
+                'winner': None
+            })
+            match_num += 1
+        self.matches.extend(new_matches)
 
-    def display_brackets(self) -> discord.Embed:
+    def display_brackets(self):
         """Return an embed representing the current brackets."""
-        try:
-            embed = discord.Embed(
-                title=f"Tournament Brackets: {self.name}", 
-                color=0x00ff00
-            )
-            
-            rounds = sorted(set(m['round'] for m in self.matches))
-            for rnd in rounds:
-                matches_in_round = [m for m in self.matches if m['round'] == rnd]
-                value = ""
-                
-                for m in matches_in_round:
-                    team1_name = (f"Team {m['team1'] + 1}: {self.teams[m['team1']]['name']}" 
-                                if m['team1'] is not None else "TBD")
-                    team2_name = (f"Team {m['team2'] + 1}: {self.teams[m['team2']]['name']}" 
-                                if m['team2'] is not None else "Bye")
-                    winner_name = (f"Team {m['winner'] + 1}: {self.teams[m['winner']]['name']}" 
-                                 if m['winner'] is not None else "In Progress")
-                    
-                    value += f"Match {m['match_num']}: {team1_name} vs {team2_name} - Winner: {winner_name}\n"
-                
-                embed.add_field(name=f"Round {rnd}", value=value, inline=False)
-            
-            return embed
-        except Exception as e:
-            logger.error(f"Error displaying brackets: {e}")
-            raise
+        embed = discord.Embed(title=f"Tournament Brackets: {self.name}", color=0x00ff00)
+        rounds = set(m['round'] for m in self.matches)
+        for rnd in sorted(rounds):
+            matches_in_round = [m for m in self.matches if m['round'] == rnd]
+            value = ""
+            for m in matches_in_round:
+                team1_name = f"Team {m['team1'] +1}: {self.teams[m['team1']]['name']}" if m['team1'] is not None else "TBD"
+                team2_name = f"Team {m['team2'] +1}: {self.teams[m['team2']]['name']}" if m['team2'] is not None else "Bye"
+                winner_name = f"Team {m['winner'] +1}: {self.teams[m['winner']]['name']}" if m['winner'] is not None else "In Progress"
+                value += f"Match {m['match_num']}: {team1_name} vs {team2_name} - Winner: {winner_name}\n"
+            embed.add_field(name=f"Round {rnd}", value=value, inline=False)
+        return embed
 
-    def update_member(self, team_number: int, old_member_name: str, 
-                     new_member_name: str, new_member_rank: str) -> bool:
+    def update_member(self, team_number, old_member_name, new_member_name, new_member_rank):
         """Update a member in a team."""
-        try:
-            team_idx = team_number - 1
-            if not 0 <= team_idx < len(self.teams):
-                return False
-                
-            team = self.teams[team_idx]['players']
-            for idx, player in enumerate(team):
-                if player[0].lower() == old_member_name.lower():
-                    if new_member_rank.upper() not in TIER_POINTS:
-                        return False
-                    team[idx] = (new_member_name, 
-                               new_member_rank.upper(), 
-                               TIER_POINTS[new_member_rank.upper()])
-                    self.save_to_file()  # Save after updating
-                    return True
+        team_idx = team_number - 1
+        if team_idx < 0 or team_idx >= len(self.teams):
             return False
-        except Exception as e:
-            logger.error(f"Error updating member: {e}")
-            return False
+        team = self.teams[team_idx]['players']
+        for idx, player in enumerate(team):
+            if player[0].lower() == old_member_name.lower():
+                if new_member_rank.upper() not in TIER_POINTS:
+                    return False
+                team[idx] = (new_member_name, new_member_rank.upper(), TIER_POINTS[new_member_rank.upper()])
+                return True
+        return False
 
-    def update_team_name(self, team_number: int, new_name: str) -> bool:
-        """Update the name of a team."""
-        try:
-            team_idx = team_number - 1
-            if not 0 <= team_idx < len(self.teams):
-                return False
-            self.teams[team_idx]['name'] = new_name
-            self.save_to_file()  # Save after updating
-            return True
-        except Exception as e:
-            logger.error(f"Error updating team name: {e}")
+    def get_team_info(self, team_idx):
+        """Return the team information."""
+        team = self.teams[team_idx]
+        team_name = team['name']
+        players = team['players']
+        team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in players])
+        return team_name, team_info
+
+    def get_all_teams_info(self):
+        """Return information for all teams."""
+        info = ""
+        for idx, team in enumerate(self.teams):
+            team_name, team_info = self.get_team_info(idx)
+            info += f"{team_name}:\n{team_info}\n\n"
+        return info
+
+    def add_commentator(self, commentator_name):
+        """Add a commentator to the tournament."""
+        if len(self.commentators) >= 2:
             return False
+        if commentator_name in self.commentators:
+            return False
+        self.commentators.append(commentator_name)
+        return True
+
+    def remove_commentator(self, commentator_name):
+        """Remove a commentator from the tournament."""
+        if commentator_name in self.commentators:
+            self.commentators.remove(commentator_name)
+            return True
+        return False
+
+    def add_staff(self, staff_name):
+        """Add a staff member to the tournament."""
+        if staff_name in self.staff:
+            return False
+        self.staff.append(staff_name)
+        return True
+
+    def remove_staff(self, staff_name):
+        """Remove a staff member from the tournament."""
+        if staff_name in self.staff:
+            self.staff.remove(staff_name)
+            return True
+        return False
+
+    def update_team_name(self, team_number, new_name):
+        """Update the name of a team."""
+        team_idx = team_number -1
+        if team_idx < 0 or team_idx >= len(self.teams):
+            return False
+        self.teams[team_idx]['name'] = new_name
+        return True
 
 class TeamConfirmationView(View):
-    def __init__(self, teams: List[Dict], original_players: List[Tuple[str, str, float]]):
-        super().__init__(timeout=60)
+    """A view for confirming or regenerating teams."""
+
+    def __init__(self, teams, original_players):
+        super().__init__(timeout=60)  # Timeout after 60 seconds
         self.teams = teams
         self.original_players = original_players
 
     @discord.ui.button(label="Confirm Teams", style=discord.ButtonStyle.green)
     async def confirm(self, interaction: discord.Interaction, button: Button):
-        embed = discord.Embed(
-            title="Teams Confirmed!", 
-            description="Teams have been successfully confirmed.", 
-            color=0x00ff00
-        )
+        """Handles team confirmation."""
+        embed = discord.Embed(title="Teams Confirmed!", description="Teams have been successfully confirmed.", color=0x00ff00)
         await interaction.response.edit_message(embed=embed, view=None)
         self.stop()
 
     @discord.ui.button(label="Regenerate Teams", style=discord.ButtonStyle.red)
     async def regenerate(self, interaction: discord.Interaction, button: Button):
+        """Handles team regeneration."""
         embed, view = create_balanced_teams(self.original_players)
         await interaction.response.edit_message(embed=embed, view=view)
         self.stop()
 
-# Command error handling
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"Missing required argument: {error.param}")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send(f"Invalid argument provided: {str(error)}")
-    else:
-        logger.error(f"Command error: {error}")
-        await ctx.send(f"An error occurred: {str(error)}")
-
-# Bot event handlers
-@bot.event
-async def on_ready():
-    logger.info(f'{bot.user} has connected to Discord!')
-
-# Helper functions
-def format_tier_points() -> List[str]:
+def format_tier_points():
     """Format tier points in a more compact way."""
     tiers = {
         "Iron": ["I"],
@@ -333,126 +260,138 @@ def format_tier_points() -> List[str]:
         "Challenger": ["C"]
     }
 
-    return [
-        f"{tier_name}: {' | '.join(f'{rank}: {TIER_POINTS[rank]}' for rank in ranks)}"
-        for tier_name, ranks in tiers.items()
-    ]
+    formatted_tiers = []
+    for tier_name, ranks in tiers.items():
+        if tier_name in ["Master", "Grandmaster", "Challenger"]:
+            tier_str = f"{tier_name}: {TIER_POINTS[ranks[0]]}"
+        else:
+            points = [f"{rank}: {TIER_POINTS[rank]}" for rank in ranks]
+            tier_str = f"{tier_name}: {' | '.join(points)}"
+        formatted_tiers.append(tier_str)
 
-def create_balanced_teams(players: List[Tuple[str, str, float]]) -> Tuple[discord.Embed, TeamConfirmationView]:
+    return formatted_tiers
+
+def create_balanced_teams(players):
     """Create balanced 5v5 teams from a list of players."""
-    try:
-        if len(players) != 10:
-            raise ValueError("Exactly 10 players required for team balancing")
+    best_diff = float('inf')
+    best_team1 = None
+    best_team2 = None
 
-        best_diff = float('inf')
-        best_teams = None
+    # Generate all possible combinations for team1
+    for team1_indices in combinations(range(10), 5):
+        team1 = [players[i] for i in team1_indices]
+        team2 = [players[i] for i in range(10) if i not in team1_indices]
 
-        for team1_indices in combinations(range(10), 5):
-            team1 = [players[i] for i in team1_indices]
-            team2 = [players[i] for i in range(10) if i not in team1_indices]
+        team1_score = sum(player[2] for player in team1)
+        team2_score = sum(player[2] for player in team2)
 
-            team1_score = sum(player[2] for player in team1)
-            team2_score = sum(player[2] for player in team2)
+        diff = abs(team1_score - team2_score)
+        if diff < best_diff:
+            best_diff = diff
+            best_team1 = team1
+            best_team2 = team2
 
-            diff = abs(team1_score - team2_score)
-            if diff < best_diff:
-                best_diff = diff
-                best_teams = (team1, team2)
+    # Assign team names as "Team 1" and "Team 2"
+    team1_name = "Team 1"
+    team2_name = "Team 2"
 
-        team1_name = "Team 1"
-        team2_name = "Team 2"
+    embed = discord.Embed(title="Balanced Teams (5v5)", color=0x00ff00)
 
-        embed = discord.Embed(title="Balanced Teams (5v5)", color=0x00ff00)
+    team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team1])
+    team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team2])
 
-        team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_teams[0]])
-        team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_teams[1]])
+    embed.add_field(name=f"{team1_name}", value=team1_info, inline=True)
+    embed.add_field(name=f"{team2_name}", value=team2_info, inline=True)
+    embed.add_field(name="Balance Info", value=f"Point Difference: {best_diff:.1f} points", inline=False)
 
-        embed.add_field(name=team1_name, value=team1_info, inline=True)
-        embed.add_field(name=team2_name, value=team2_info, inline=True)
-        embed.add_field(name="Balance Info", value=f"Point Difference: {best_diff:.1f} points", inline=False)
+    # Add interactive buttons for confirmation
+    view = TeamConfirmationView(teams=[team1_name, team2_name], original_players=players)
+    embed.set_footer(text="Please confirm or regenerate the teams using the buttons below.")
 
-        view = TeamConfirmationView(teams=[team1_name, team2_name], original_players=players)
-        return embed, view
-    except Exception as e:
-        logger.error(f"Error creating balanced teams: {e}")
-        raise
+    return embed, view
 
-def create_balanced_tournament_teams(players: List[Tuple[str, str, float]]) -> List[Dict]:
+def create_balanced_tournament_teams(players):
     """Create balanced teams for a tournament."""
-    try:
-        team_size = 5
-        num_teams = len(players) // team_size
-        
-        if not num_teams:
-            raise ValueError("Not enough players to form teams")
-            
-        if num_teams > len(TEAM_NAMES):
-            raise ValueError("Not enough team names available")
+    team_size = 5
+    num_teams = len(players) // team_size
+    teams = []
+    team_points = []
+    players_sorted = sorted(players, key=lambda x: x[2], reverse=True)
+    available_team_names = TEAM_NAMES.copy()
+    random.shuffle(available_team_names)
+    for _ in range(num_teams):
+        teams.append({'name': available_team_names.pop(), 'players': []})
+        team_points.append(0)
+    for player in players_sorted:
+        # Assign to the team with the lowest total points
+        min_team_idx = team_points.index(min(team_points))
+        if len(teams[min_team_idx]['players']) < team_size:
+            teams[min_team_idx]['players'].append(player)
+            team_points[min_team_idx] += player[2]
+    return teams
 
-        teams = []
-        team_points = []
-        available_team_names = TEAM_NAMES.copy()
-        random.shuffle(available_team_names)
+@bot.event
+async def on_ready():
+    print(f'{bot.user} has connected to Discord!')
 
-        # Initialize teams
-        for _ in range(num_teams):
-            teams.append({'name': available_team_names.pop(), 'players': []})
-            team_points.append(0)
-
-        # Sort players by skill and distribute
-        players_sorted = sorted(players, key=lambda x: x[2], reverse=True)
-        for player in players_sorted:
-            min_team_idx = team_points.index(min(team_points))
-            if len(teams[min_team_idx]['players']) < team_size:
-                teams[min_team_idx]['players'].append(player)
-                team_points[min_team_idx] += player[2]
-
-        return teams
-    except Exception as e:
-        logger.error(f"Error creating tournament teams: {e}")
-        raise
-
-# Bot commands
 @bot.command(name='help')
 async def help_command(ctx):
     """Displays the help message with all available commands."""
     embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
-    
-    commands_info = {
-        "Basic Commands": {
-            "!lf help": "Shows this help message",
-            "!lf tiers": "Shows all tier point values",
-            "!lf join [name] [rank]": "Join the player queue for a quick match",
-            "!lf team [player1] [rank1] [player2] [rank2] ...": "Creates balanced 5v5 teams"
-        },
-        "Tournament Commands": {
-            "!lf tournament create [name] [players...]": "Create a new tournament",
-            "!lf tournament brackets [name]": "Display tournament brackets",
-            "!lf tournament teams [name]": "Display tournament teams",
-            "!lf tournament report [name] [match] [winner]": "Report match results",
-            "!lf tournament update_member [details...]": "Update team member",
-            "!lf tournament update_name [details...]": "Update team name",
-            "!lf tournament add_commentator [details...]": "Add commentator",
-            "!lf tournament remove_commentator [details...]": "Remove commentator",
-            "!lf tournament add_staff [details...]": "Add staff member",
-            "!lf tournament remove_staff [details...]": "Remove staff member"
-        },
-        "Management Commands": {
-            "!lf clear players": "Clear player queue",
-            "!lf clear teams": "Clear all teams",
-            "!lf clear tournaments": "Clear all tournaments",
-            "!lf clear matches": "Clear all matches",
-            "!lf clear all": "Clear all data"
-        }
-    }
+    embed.add_field(name="Available Commands", value=(
+        "1. `!lf team [player1] [rank1] [player2] [rank2] ...`\n"
+        "   - Creates balanced 5v5 teams named 'Team 1' and 'Team 2'\n"
+        "   - Requires exactly 10 players with their ranks\n\n"
+        "2. `!lf tiers`\n"
+        "   - Shows all tier point values\n\n"
+        "3. `!lf join [name] [rank]`\n"
+        "   - Join the player queue for a quick match\n\n"
+        "4. `!lf tournament create [tournament_name] [player1] [rank1] ... [commentator1] [commentator2] [staff1] [staff2]`\n"
+        "   - Create teams for a tournament with multiple players, optionally adding up to 2 commentators and staff\n\n"
+        "5. `!lf tournament add_commentator [tournament_name] [commentator_name]`\n"
+        "   - Add a commentator to an existing tournament (max 2)\n\n"
+        "6. `!lf tournament remove_commentator [tournament_name] [commentator_name]`\n"
+        "   - Remove a commentator from an existing tournament\n\n"
+        "7. `!lf tournament add_staff [tournament_name] [staff_name]`\n"
+        "   - Add a staff member to an existing tournament\n\n"
+        "8. `!lf tournament remove_staff [tournament_name] [staff_name]`\n"
+        "   - Remove a staff member from an existing tournament\n\n"
+        "9. `!lf tournament report [tournament_name] [match_number] [winning_team_number]`\n"
+        "   - Report match results and update brackets\n\n"
+        "10. `!lf tournament brackets [tournament_name]`\n"
+        "    - Display the current tournament brackets\n\n"
+        "11. `!lf tournament teams [tournament_name]`\n"
+        "    - Display the teams in the tournament\n\n"
+        "12. `!lf tournament update_member [tournament_name] [team_number] [old_member_name] [new_member_name] [new_member_rank]`\n"
+        "    - Update a member in a tournament team\n\n"
+        "13. `!lf tournament update_name [tournament_name] [team_number] [new_team_name]`\n"
+        "    - Update the name of a team in the tournament\n\n"
+        "14. `!lf clear [option]`\n"
+        "    - Clear specific data. Options: players, teams, tournaments, matches, all\n\n"
+        "15. `!lf help`\n"
+        "    - Shows this help message"
+    ), inline=False)
 
-    for category, commands in commands_info.items():
-        commands_text = "\n".join([f"{cmd}: {desc}" for cmd, desc in commands.items()])
-        embed.add_field(name=category, value=commands_text, inline=False)
+    embed.add_field(name="Valid Ranks", value=(
+        "Iron: I\n"
+        "Iron-Bronze: IB\n"
+        "Bronze: B\n"
+        "Bronze-Silver: BS\n"
+        "Silver: S\n"
+        "Silver-Gold: SG\n"
+        "Gold: G\n"
+        "Gold-Platinum: GP\n"
+        "Platinum: P\n"
+        "Platinum-Emerald: PE\n"
+        "Emerald: E\n"
+        "Emerald-Diamond: ED\n"
+        "Diamond: D\n"
+        "Diamond-Master: DM\n"
+        "Master: M\n"
+        "Grandmaster: GM\n"
+        "Challenger: C"
+    ), inline=False)
 
-    # Add valid ranks information
-    embed.add_field(name="Valid Ranks", value="\n".join(format_tier_points()), inline=False)
-    
     await ctx.send(embed=embed)
 
 @bot.command(name='tiers')
@@ -460,62 +399,62 @@ async def tiers_command(ctx):
     """Displays the tier points."""
     embed = discord.Embed(title="League of Legends Rank Point Values", color=0x00ff00)
     for tier_str in format_tier_points():
-        name, values = tier_str.split(': ', 1)
-        embed.add_field(name=name, value=values, inline=False)
+        if ': ' in tier_str:
+            name, values = tier_str.split(': ', 1)
+            embed.add_field(name=name, value=values, inline=False)
     await ctx.send(embed=embed)
 
 @bot.command(name='join')
 async def join_queue(ctx, name: str, rank: str):
     """Allows a player to join the matchmaking queue."""
-    try:
-        player = Player.from_input(name, rank)
-        player_info = (player.name, player.rank, player.points)
+    rank = rank.upper()
+    if rank not in TIER_POINTS:
+        await ctx.send(f"Invalid rank '{rank}'. Use `!lf help` to see valid ranks.")
+        return
 
-        if player_info in player_pool:
-            await ctx.send(f"{name} is already in the queue.")
-            return
+    player_info = (name, rank, TIER_POINTS[rank])
 
-        player_pool.append(player_info)
-        await ctx.send(f"{name} joined the queue as {rank}.")
+    if player_info in player_pool:
+        await ctx.send(f"{name} is already in the queue.")
+        return
 
-        if len(player_pool) >= 10:
-            embed, view = create_balanced_teams(player_pool[:10])
-            await ctx.send(embed=embed, view=view)
-            del player_pool[:10]
-    except ValueError as e:
-        await ctx.send(str(e))
-    except Exception as e:
-        logger.error(f"Error in join queue: {e}")
-        await ctx.send("An error occurred while joining the queue.")
+    player_pool.append(player_info)
+    await ctx.send(f"{name} joined the queue as {rank}.")
+
+    if len(player_pool) >= 10:
+        embed, view = create_balanced_teams(player_pool[:10])
+        await ctx.send(embed=embed, view=view)
+        del player_pool[:10]
 
 @bot.command(name='team')
-async def team_balance(ctx, *, input_text: str = None):
+async def team_balance(ctx, *, input_text=None):
     """Creates balanced teams based on provided players and ranks."""
     if not input_text:
         await ctx.send("Please use `!lf help` for command information.")
         return
 
-    try:
-        args = input_text.split()
-        if len(args) < 20:
-            await ctx.send("For team balancing, provide 10 players with their ranks.")
-            return
+    args = input_text.split()
+    if len(args) < 20:
+        await ctx.send("For team balancing, provide 10 players with their ranks.\nUse `!lf help` for more information.")
+        return
 
+    try:
         players = []
         for i in range(0, 20, 2):
-            player = Player.from_input(args[i], args[i+1])
-            players.append((player.name, player.rank, player.points))
+            player_name = args[i]
+            player_rank = args[i+1].upper()
+            if player_rank not in TIER_POINTS:
+                await ctx.send(f"Invalid rank '{player_rank}' for player '{player_name}'. Use `!lf help` to see valid ranks.")
+                return
+            players.append((player_name, player_rank, TIER_POINTS[player_rank]))
 
         embed, view = create_balanced_teams(players)
         await ctx.send(embed=embed, view=view)
 
-    except ValueError as e:
-        await ctx.send(str(e))
     except Exception as e:
-        logger.error(f"Error in team balance: {e}")
-        await ctx.send("An error occurred while creating teams.")
+        await ctx.send("Error creating teams. Use `!lf help` for the correct format.")
+        print(f"Error: {str(e)}")  # For debugging
 
-# Tournament commands group
 @bot.group(name='tournament', invoke_without_command=True)
 async def tournament(ctx):
     """Base command for tournament operations."""
@@ -523,124 +462,524 @@ async def tournament(ctx):
 
 @tournament.command(name='create')
 async def tournament_create(ctx, tournament_name: str, *args):
-    """Creates a new tournament."""
-    try:
-        if tournament_name in tournaments:
-            await ctx.send(f"Tournament '{tournament_name}' already exists.")
+    """
+    Creates a new tournament.
+    Format: !lf tournament create [tournament_name] [player1] [rank1] ... [commentator1] [commentator2] [staff1] [staff2]
+    Commentators and staff are optional.
+    """
+    required_player_args = 10 * 2  # 10 players, each with name and rank
+    if len(args) < required_player_args:
+        await ctx.send("Please provide a tournament name and at least 10 players with their ranks.\nUse `!lf help` for more information.")
+        return
+
+    # Extract players
+    players = []
+    i = 0
+    while i +1 < len(args):
+        if args[i].lower().startswith(('commentator', 'staff')):
+            break
+        player_name = args[i]
+        player_rank = args[i+1].upper()
+        if player_rank not in TIER_POINTS:
+            await ctx.send(f"Invalid rank '{player_rank}' for player '{player_name}'. Use `!lf help` to see valid ranks.")
+            return
+        players.append((player_name, player_rank, TIER_POINTS[player_rank]))
+        i += 2
+
+    if len(players) <5:
+        await ctx.send("Not enough players to form a single team.")
+        return
+
+    # Remaining args could be commentators and staff
+    commentators = []
+    staff = []
+    while i < len(args):
+        if args[i].lower().startswith('commentator'):
+            if len(commentators) >=2:
+                await ctx.send("Maximum of 2 commentators allowed.")
+                return
+            if i +1 >= len(args):
+                await ctx.send("Please provide a name for the commentator.")
+                return
+            commentators.append(args[i+1])
+            i +=2
+        elif args[i].lower().startswith('staff'):
+            if i +1 >= len(args):
+                await ctx.send("Please provide a name for the staff member.")
+                return
+            staff.append(args[i+1])
+            i +=2
+        else:
+            await ctx.send(f"Unrecognized role '{args[i]}'. Use `!lf help` for more information.")
             return
 
-        # Parse players and roles
-        players = []
-        commentators = []
-        staff = []
-        i = 0
-        
-        while i < len(args):
-            arg = args[i].lower()
-            if arg.startswith(('commentator', 'staff')):
-                break
-            if i + 1 >= len(args):
-                await ctx.send("Invalid player format. Need both name and rank.")
-                return
-            
-            player = Player.from_input(args[i], args[i+1])
-            players.append((player.name, player.rank, player.points))
-            i += 2
+    # Create teams
+    teams = create_balanced_tournament_teams(players)
+    # Create Tournament instance
+    tournament_obj = Tournament(tournament_name, teams, commentators, staff)
+    tournaments[tournament_name] = tournament_obj
 
-        # Parse commentators and staff
-        while i < len(args):
-            if args[i].lower().startswith('commentator'):
-                if len(commentators) >= 2:
-                    await ctx.send("Maximum of 2 commentators allowed.")
-                    return
-                commentators.append(args[i+1])
-                i += 2
-            elif args[i].lower().startswith('staff'):
-                staff.append(args[i+1])
-                i += 2
-            else:
-                await ctx.send(f"Unrecognized role: {args[i]}")
-                return
+    # Display teams and their members with team points
+    embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+    for idx, team in enumerate(teams):
+        team_name = team['name']
+        team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+        team_points = sum(player[2] for player in team['players'])
+        embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+    if commentators:
+        embed.add_field(name="Commentators", value=", ".join(commentators), inline=False)
+    if staff:
+        embed.add_field(name="Staff", value=", ".join(staff), inline=False)
+    await ctx.send(embed=embed)
 
-        teams = create_balanced_tournament_teams(players)
-        tournament_obj = Tournament(tournament_name, teams, commentators, staff)
-        tournaments[tournament_name] = tournament_obj
+    # Also display the brackets
+    embed = tournament_obj.display_brackets()
+    await ctx.send(embed=embed)
 
-        # Show teams
+@tournament.command(name='add_commentator')
+async def tournament_add_commentator(ctx, tournament_name: str, commentator_name: str):
+    """
+    Adds a commentator to an existing tournament.
+    Format: !lf tournament add_commentator [tournament_name] [commentator_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.add_commentator(commentator_name)
+    if success:
+        await ctx.send(f"Commentator '{commentator_name}' has been added to tournament '{tournament_name}'.")
+        # Update tournament embed
         embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
-        for idx, team in enumerate(teams):
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
             team_points = sum(player[2] for player in team['players'])
-            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" 
-                                 for player in team['players']])
-            embed.add_field(
-                name=f"Team {idx + 1}: {team['name']} - {team_points:.1f} pts",
-                value=team_info,
-                inline=False
-            )
-        
-        if commentators:
-            embed.add_field(name="Commentators", value=", ".join(commentators), inline=False)
-        if staff:
-            embed.add_field(name="Staff", value=", ".join(staff), inline=False)
-        
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        if tournament_obj.commentators:
+            embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+        if tournament_obj.staff:
+            embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
         await ctx.send(embed=embed)
-        
-        # Show brackets
-        brackets_embed = tournament_obj.display_brackets()
-        await ctx.send(embed=brackets_embed)
+    else:
+        await ctx.send(f"Failed to add commentator '{commentator_name}'. They may already be added or the limit of 2 commentators has been reached.")
 
-    except ValueError as e:
-        await ctx.send(str(e))
-    except Exception as e:
-        logger.error(f"Error creating tournament: {e}")
-        await ctx.send("An error occurred while creating the tournament.")
-
-# Additional tournament commands
-@tournament.command(name='brackets')
-async def tournament_brackets(ctx, tournament_name: str):
-    """Displays the brackets of a tournament."""
-    try:
-        tournament_obj = tournaments.get(tournament_name)
-        if not tournament_obj:
-            await ctx.send(f"Tournament '{tournament_name}' not found.")
-            return
-        
-        embed = tournament_obj.display_brackets()
+@tournament.command(name='remove_commentator')
+async def tournament_remove_commentator(ctx, tournament_name: str, commentator_name: str):
+    """
+    Removes a commentator from an existing tournament.
+    Format: !lf tournament remove_commentator [tournament_name] [commentator_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.remove_commentator(commentator_name)
+    if success:
+        await ctx.send(f"Commentator '{commentator_name}' has been removed from tournament '{tournament_name}'.")
+        # Update tournament embed
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        if tournament_obj.commentators:
+            embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+        if tournament_obj.staff:
+            embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
         await ctx.send(embed=embed)
-    except Exception as e:
-        logger.error(f"Error displaying brackets: {e}")
-        await ctx.send("An error occurred while displaying the brackets.")
+    else:
+        await ctx.send(f"Failed to remove commentator '{commentator_name}'. They may not be part of the tournament.")
+
+@tournament.command(name='add_staff')
+async def tournament_add_staff(ctx, tournament_name: str, staff_name: str):
+    """
+    Adds a staff member to an existing tournament.
+    Format: !lf tournament add_staff [tournament_name] [staff_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.add_staff(staff_name)
+    if success:
+        await ctx.send(f"Staff member '{staff_name}' has been added to tournament '{tournament_name}'.")
+        # Update tournament embed
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        if tournament_obj.commentators:
+            embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+        if tournament_obj.staff:
+            embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"Failed to add staff member '{staff_name}'. They may already be added.")
+
+@tournament.command(name='remove_staff')
+async def tournament_remove_staff(ctx, tournament_name: str, staff_name: str):
+    """
+    Removes a staff member from an existing tournament.
+    Format: !lf tournament remove_staff [tournament_name] [staff_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.remove_staff(staff_name)
+    if success:
+        await ctx.send(f"Staff member '{staff_name}' has been removed from tournament '{tournament_name}'.")
+        # Update tournament embed
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        if tournament_obj.commentators:
+            embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+        if tournament_obj.staff:
+            embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"Failed to remove staff member '{staff_name}'. They may not be part of the tournament.")
 
 @tournament.command(name='report')
 async def tournament_report(ctx, tournament_name: str, match_number: int, winning_team_number: int):
-    """Reports the result of a match."""
-    try:
-        tournament_obj = tournaments.get(tournament_name)
-        if not tournament_obj:
-            await ctx.send(f"Tournament '{tournament_name}' not found.")
-            return
+    """
+    Reports the result of a match.
+    Format: !lf tournament report [tournament_name] [match_number] [winning_team_number]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    if winning_team_number <1 or winning_team_number > len(tournament_obj.teams):
+        await ctx.send("Invalid winning team number.")
+        return
+    winning_team_idx = winning_team_number -1
+    success = tournament_obj.report_match_result(match_number, winning_team_idx)
+    if success:
+        await ctx.send(f"Updated match {match_number} with winner Team {winning_team_number}: {tournament_obj.teams[winning_team_idx]['name']}.")
+        # Display updated brackets
+        embed = tournament_obj.display_brackets()
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"Failed to update match {match_number}.")
 
-        if winning_team_number < 1 or winning_team_number > len(tournament_obj.teams):
-            await ctx.send("Invalid winning team number.")
-            return
+@tournament.command(name='brackets')
+async def tournament_brackets(ctx, tournament_name: str):
+    """
+    Displays the brackets of a tournament.
+    Format: !lf tournament brackets [tournament_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    embed = tournament_obj.display_brackets()
+    await ctx.send(embed=embed)
 
-        winning_team_idx = winning_team_number - 1
-        success = tournament_obj.report_match_result(match_number, winning_team_idx)
-        
-        if success:
-            await ctx.send(
-                f"Updated match {match_number} with winner Team {winning_team_number}: "
-                f"{tournament_obj.teams[winning_team_idx]['name']}."
-            )
-            embed = tournament_obj.display_brackets()
-            await ctx.send(embed=embed)
-        else:
-            await ctx.send(f"Failed to update match {match_number}.")
-    except Exception as e:
-        logger.error(f"Error reporting match result: {e}")
-        await ctx.send("An error occurred while reporting the match result.")
+@tournament.command(name='teams')
+async def tournament_teams(ctx, tournament_name: str):
+    """
+    Displays the teams of a tournament.
+    Format: !lf tournament teams [tournament_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+    for idx, team in enumerate(tournament_obj.teams):
+        team_name = team['name']
+        team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+        team_points = sum(player[2] for player in team['players'])
+        embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+    if tournament_obj.commentators:
+        embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+    if tournament_obj.staff:
+        embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
+    await ctx.send(embed=embed)
 
-# Clear commands
+@tournament.command(name='update_member')
+async def tournament_update_member(ctx, tournament_name: str, team_number: int, old_member_name: str, new_member_name: str, new_member_rank: str):
+    """
+    Updates a member in a tournament team.
+    Format: !lf tournament update_member [tournament_name] [team_number] [old_member_name] [new_member_name] [new_member_rank]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    new_member_rank = new_member_rank.upper()
+    if new_member_rank not in TIER_POINTS:
+        await ctx.send(f"Invalid rank '{new_member_rank}'. Use `!lf help` to see valid ranks.")
+        return
+    success = tournament_obj.update_member(team_number, old_member_name, new_member_name, new_member_rank)
+    if success:
+        await ctx.send(f"Updated Team {team_number}: Replaced '{old_member_name}' with '{new_member_name}' ({new_member_rank}).")
+        # Display updated teams
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("Failed to update member.")
+
+@tournament.command(name='update_name')
+async def tournament_update_name(ctx, tournament_name: str, team_number: int, new_team_name: str):
+    """
+    Updates the name of a team in a tournament.
+    Format: !lf tournament update_name [tournament_name] [team_number] [new_team_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.update_team_name(team_number, new_team_name)
+    if success:
+        await ctx.send(f"Updated Team {team_number} name to '{new_team_name}'.")
+        # Display updated teams
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("Failed to update team name.")
+
+@tournament.command(name='add_commentator')
+async def tournament_add_commentator(ctx, tournament_name: str, commentator_name: str):
+    """
+    Adds a commentator to an existing tournament.
+    Format: !lf tournament add_commentator [tournament_name] [commentator_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.add_commentator(commentator_name)
+    if success:
+        await ctx.send(f"Commentator '{commentator_name}' has been added to tournament '{tournament_name}'.")
+        # Update tournament embed
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        if tournament_obj.commentators:
+            embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+        if tournament_obj.staff:
+            embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"Failed to add commentator '{commentator_name}'. They may already be added or the limit of 2 commentators has been reached.")
+
+@tournament.command(name='remove_commentator')
+async def tournament_remove_commentator(ctx, tournament_name: str, commentator_name: str):
+    """
+    Removes a commentator from an existing tournament.
+    Format: !lf tournament remove_commentator [tournament_name] [commentator_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.remove_commentator(commentator_name)
+    if success:
+        await ctx.send(f"Commentator '{commentator_name}' has been removed from tournament '{tournament_name}'.")
+        # Update tournament embed
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        if tournament_obj.commentators:
+            embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+        if tournament_obj.staff:
+            embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"Failed to remove commentator '{commentator_name}'. They may not be part of the tournament.")
+
+@tournament.command(name='add_staff')
+async def tournament_add_staff(ctx, tournament_name: str, staff_name: str):
+    """
+    Adds a staff member to an existing tournament.
+    Format: !lf tournament add_staff [tournament_name] [staff_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.add_staff(staff_name)
+    if success:
+        await ctx.send(f"Staff member '{staff_name}' has been added to tournament '{tournament_name}'.")
+        # Update tournament embed
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        if tournament_obj.commentators:
+            embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+        if tournament_obj.staff:
+            embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"Failed to add staff member '{staff_name}'. They may already be added.")
+
+@tournament.command(name='remove_staff')
+async def tournament_remove_staff(ctx, tournament_name: str, staff_name: str):
+    """
+    Removes a staff member from an existing tournament.
+    Format: !lf tournament remove_staff [tournament_name] [staff_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.remove_staff(staff_name)
+    if success:
+        await ctx.send(f"Staff member '{staff_name}' has been removed from tournament '{tournament_name}'.")
+        # Update tournament embed
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        if tournament_obj.commentators:
+            embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+        if tournament_obj.staff:
+            embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"Failed to remove staff member '{staff_name}'. They may not be part of the tournament.")
+
+@tournament.command(name='report')
+async def tournament_report(ctx, tournament_name: str, match_number: int, winning_team_number: int):
+    """
+    Reports the result of a match.
+    Format: !lf tournament report [tournament_name] [match_number] [winning_team_number]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    if winning_team_number <1 or winning_team_number > len(tournament_obj.teams):
+        await ctx.send("Invalid winning team number.")
+        return
+    winning_team_idx = winning_team_number -1
+    success = tournament_obj.report_match_result(match_number, winning_team_idx)
+    if success:
+        await ctx.send(f"Updated match {match_number} with winner Team {winning_team_number}: {tournament_obj.teams[winning_team_idx]['name']}.")
+        # Display updated brackets
+        embed = tournament_obj.display_brackets()
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"Failed to update match {match_number}.")
+
+@tournament.command(name='brackets')
+async def tournament_brackets(ctx, tournament_name: str):
+    """
+    Displays the brackets of a tournament.
+    Format: !lf tournament brackets [tournament_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    embed = tournament_obj.display_brackets()
+    await ctx.send(embed=embed)
+
+@tournament.command(name='teams')
+async def tournament_teams(ctx, tournament_name: str):
+    """
+    Displays the teams of a tournament.
+    Format: !lf tournament teams [tournament_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+    for idx, team in enumerate(tournament_obj.teams):
+        team_name = team['name']
+        team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+        team_points = sum(player[2] for player in team['players'])
+        embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+    if tournament_obj.commentators:
+        embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
+    if tournament_obj.staff:
+        embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
+    await ctx.send(embed=embed)
+
+@tournament.command(name='update_member')
+async def tournament_update_member(ctx, tournament_name: str, team_number: int, old_member_name: str, new_member_name: str, new_member_rank: str):
+    """
+    Updates a member in a tournament team.
+    Format: !lf tournament update_member [tournament_name] [team_number] [old_member_name] [new_member_name] [new_member_rank]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    new_member_rank = new_member_rank.upper()
+    if new_member_rank not in TIER_POINTS:
+        await ctx.send(f"Invalid rank '{new_member_rank}'. Use `!lf help` to see valid ranks.")
+        return
+    success = tournament_obj.update_member(team_number, old_member_name, new_member_name, new_member_rank)
+    if success:
+        await ctx.send(f"Updated Team {team_number}: Replaced '{old_member_name}' with '{new_member_name}' ({new_member_rank}).")
+        # Display updated teams
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("Failed to update member.")
+
+@tournament.command(name='update_name')
+async def tournament_update_name(ctx, tournament_name: str, team_number: int, new_team_name: str):
+    """
+    Updates the name of a team in a tournament.
+    Format: !lf tournament update_name [tournament_name] [team_number] [new_team_name]
+    """
+    tournament_obj = tournaments.get(tournament_name)
+    if not tournament_obj:
+        await ctx.send(f"Tournament '{tournament_name}' not found.")
+        return
+    success = tournament_obj.update_team_name(team_number, new_team_name)
+    if success:
+        await ctx.send(f"Updated Team {team_number} name to '{new_team_name}'.")
+        # Display updated teams
+        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
+        for idx, team in enumerate(tournament_obj.teams):
+            team_name = team['name']
+            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in team['players']])
+            team_points = sum(player[2] for player in team['players'])
+            embed.add_field(name=f"Team {idx +1}: {team_name} - {team_points:.1f} pts", value=team_info, inline=False)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("Failed to update team name.")
+
 @bot.group(name='clear', invoke_without_command=True)
 async def clear(ctx):
     """Base command for clearing data."""
@@ -649,250 +988,44 @@ async def clear(ctx):
 @clear.command(name='players')
 async def clear_players(ctx):
     """Clears the player queue."""
-    try:
-        global player_pool
-        player_pool = []
-        await ctx.send("Player queue has been cleared.")
-    except Exception as e:
-        logger.error(f"Error clearing players: {e}")
-        await ctx.send("An error occurred while clearing players.")
+    global player_pool
+    player_pool = []
+    await ctx.send("Player queue has been cleared.")
 
 @clear.command(name='teams')
 async def clear_teams(ctx):
     """Clears all tournament teams."""
-    try:
-        for tournament in tournaments.values():
-            tournament.teams = []
-            tournament.save_to_file()
-        await ctx.send("All tournament teams have been cleared.")
-    except Exception as e:
-        logger.error(f"Error clearing teams: {e}")
-        await ctx.send("An error occurred while clearing teams.")
+    global tournaments
+    for tournament in tournaments.values():
+        tournament.teams = []
+    await ctx.send("All tournament teams have been cleared.")
 
 @clear.command(name='tournaments')
 async def clear_tournaments(ctx):
     """Clears all tournaments."""
-    try:
-        global tournaments
-        tournaments = {}
-        await ctx.send("All tournaments have been cleared.")
-    except Exception as e:
-        logger.error(f"Error clearing tournaments: {e}")
-        await ctx.send("An error occurred while clearing tournaments.")
+    global tournaments
+    tournaments = {}
+    await ctx.send("All tournaments have been cleared.")
 
 @clear.command(name='matches')
 async def clear_matches(ctx):
     """Clears all matches in all tournaments."""
-    try:
-        for tournament in tournaments.values():
-            tournament.matches = []
-            tournament.save_to_file()
-        await ctx.send("All matches in all tournaments have been cleared.")
-    except Exception as e:
-        logger.error(f"Error clearing matches: {e}")
-        await ctx.send("An error occurred while clearing matches.")
+    global tournaments
+    for tournament in tournaments.values():
+        tournament.matches = []
+    await ctx.send("All matches in all tournaments have been cleared.")
 
 @clear.command(name='all')
 async def clear_all(ctx):
     """Clears all data including players, teams, tournaments, and matches."""
-    try:
-        global player_pool, tournaments
-        player_pool = []
-        tournaments = {}
-        await ctx.send("All data has been cleared.")
-    except Exception as e:
-        logger.error(f"Error clearing all data: {e}")
-        await ctx.send("An error occurred while clearing data.")
-
-@tournament.command(name='teams')
-async def tournament_teams(ctx, tournament_name: str):
-    """Displays the teams of a tournament."""
-    try:
-        tournament_obj = tournaments.get(tournament_name)
-        if not tournament_obj:
-            await ctx.send(f"Tournament '{tournament_name}' not found.")
-            return
-            
-        embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
-        
-        for idx, team in enumerate(tournament_obj.teams):
-            team_name = team['name']
-            team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" 
-                                 for player in team['players']])
-            team_points = sum(player[2] for player in team['players'])
-            embed.add_field(
-                name=f"Team {idx + 1}: {team_name} - {team_points:.1f} pts",
-                value=team_info,
-                inline=False
-            )
-            
-        if tournament_obj.commentators:
-            embed.add_field(name="Commentators", value=", ".join(tournament_obj.commentators), inline=False)
-        if tournament_obj.staff:
-            embed.add_field(name="Staff", value=", ".join(tournament_obj.staff), inline=False)
-            
-        await ctx.send(embed=embed)
-    except Exception as e:
-        logger.error(f"Error displaying teams: {e}")
-        await ctx.send("An error occurred while displaying teams.")
-
-@tournament.command(name='update_member')
-async def tournament_update_member(ctx, tournament_name: str, team_number: int, 
-                                 old_member_name: str, new_member_name: str, new_member_rank: str):
-    """Updates a member in a tournament team."""
-    try:
-        tournament_obj = tournaments.get(tournament_name)
-        if not tournament_obj:
-            await ctx.send(f"Tournament '{tournament_name}' not found.")
-            return
-
-        new_member_rank = new_member_rank.upper()
-        if new_member_rank not in TIER_POINTS:
-            await ctx.send(f"Invalid rank '{new_member_rank}'. Use `!lf help` to see valid ranks.")
-            return
-
-        success = tournament_obj.update_member(team_number, old_member_name, new_member_name, new_member_rank)
-        
-        if success:
-            await ctx.send(f"Updated Team {team_number}: Replaced '{old_member_name}' with '{new_member_name}' ({new_member_rank}).")
-            # Display updated teams
-            embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
-            for idx, team in enumerate(tournament_obj.teams):
-                team_name = team['name']
-                team_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" 
-                                     for player in team['players']])
-                team_points = sum(player[2] for player in team['players'])
-                embed.add_field(
-                    name=f"Team {idx + 1}: {team_name} - {team_points:.1f} pts",
-                    value=team_info,
-                    inline=False
-                )
-            await ctx.send(embed=embed)
-        else:
-            await ctx.send("Failed to update member. Please check the team number and member name.")
-    except Exception as e:
-        logger.error(f"Error updating member: {e}")
-        await ctx.send("An error occurred while updating the team member.")
-
-@tournament.command(name='add_commentator')
-async def tournament_add_commentator(ctx, tournament_name: str, commentator_name: str):
-    """Adds a commentator to an existing tournament."""
-    try:
-        tournament_obj = tournaments.get(tournament_name)
-        if not tournament_obj:
-            await ctx.send(f"Tournament '{tournament_name}' not found.")
-            return
-            
-        if len(tournament_obj.commentators) >= 2:
-            await ctx.send("Maximum of 2 commentators allowed.")
-            return
-            
-        if commentator_name in tournament_obj.commentators:
-            await ctx.send(f"Commentator '{commentator_name}' is already in the tournament.")
-            return
-            
-        tournament_obj.commentators.append(commentator_name)
-        tournament_obj.save_to_file()
-        
-        await ctx.send(f"Added commentator '{commentator_name}' to tournament '{tournament_name}'.")
-        await tournament_teams(ctx, tournament_name)
-    except Exception as e:
-        logger.error(f"Error adding commentator: {e}")
-        await ctx.send("An error occurred while adding the commentator.")
-
-@tournament.command(name='remove_commentator')
-async def tournament_remove_commentator(ctx, tournament_name: str, commentator_name: str):
-    """Removes a commentator from an existing tournament."""
-    try:
-        tournament_obj = tournaments.get(tournament_name)
-        if not tournament_obj:
-            await ctx.send(f"Tournament '{tournament_name}' not found.")
-            return
-            
-        if commentator_name not in tournament_obj.commentators:
-            await ctx.send(f"Commentator '{commentator_name}' is not in the tournament.")
-            return
-            
-        tournament_obj.commentators.remove(commentator_name)
-        tournament_obj.save_to_file()
-        
-        await ctx.send(f"Removed commentator '{commentator_name}' from tournament '{tournament_name}'.")
-        await tournament_teams(ctx, tournament_name)
-    except Exception as e:
-        logger.error(f"Error removing commentator: {e}")
-        await ctx.send("An error occurred while removing the commentator.")
-
-@tournament.command(name='add_staff')
-async def tournament_add_staff(ctx, tournament_name: str, staff_name: str):
-    """Adds a staff member to an existing tournament."""
-    try:
-        tournament_obj = tournaments.get(tournament_name)
-        if not tournament_obj:
-            await ctx.send(f"Tournament '{tournament_name}' not found.")
-            return
-            
-        if staff_name in tournament_obj.staff:
-            await ctx.send(f"Staff member '{staff_name}' is already in the tournament.")
-            return
-            
-        tournament_obj.staff.append(staff_name)
-        tournament_obj.save_to_file()
-        
-        await ctx.send(f"Added staff member '{staff_name}' to tournament '{tournament_name}'.")
-        await tournament_teams(ctx, tournament_name)
-    except Exception as e:
-        logger.error(f"Error adding staff: {e}")
-        await ctx.send("An error occurred while adding the staff member.")
-
-@tournament.command(name='remove_staff')
-async def tournament_remove_staff(ctx, tournament_name: str, staff_name: str):
-    """Removes a staff member from an existing tournament."""
-    try:
-        tournament_obj = tournaments.get(tournament_name)
-        if not tournament_obj:
-            await ctx.send(f"Tournament '{tournament_name}' not found.")
-            return
-            
-        if staff_name not in tournament_obj.staff:
-            await ctx.send(f"Staff member '{staff_name}' is not in the tournament.")
-            return
-            
-        tournament_obj.staff.remove(staff_name)
-        tournament_obj.save_to_file()
-        
-        await ctx.send(f"Removed staff member '{staff_name}' from tournament '{tournament_name}'.")
-        await tournament_teams(ctx, tournament_name)
-    except Exception as e:
-        logger.error(f"Error removing staff: {e}")
-        await ctx.send("An error occurred while removing the staff member.")
-
-@tournament.command(name='update_name')
-async def tournament_update_name(ctx, tournament_name: str, team_number: int, new_team_name: str):
-    """Updates the name of a team in a tournament."""
-    try:
-        tournament_obj = tournaments.get(tournament_name)
-        if not tournament_obj:
-            await ctx.send(f"Tournament '{tournament_name}' not found.")
-            return
-
-        success = tournament_obj.update_team_name(team_number, new_team_name)
-        
-        if success:
-            await ctx.send(f"Updated Team {team_number} name to '{new_team_name}'.")
-            await tournament_teams(ctx, tournament_name)
-        else:
-            await ctx.send("Failed to update team name. Please check the team number.")
-    except Exception as e:
-        logger.error(f"Error updating team name: {e}")
-        await ctx.send("An error occurred while updating the team name.")
+    global player_pool, tournaments
+    player_pool = []
+    tournaments = {}
+    await ctx.send("All data has been cleared.")
 
 # Run the bot
-if __name__ == "__main__":
-    try:
-        bot.run(DISCORD_TOKEN)
-    except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
-        raise
+bot.run(DISCORD_TOKEN)
+
 
 # --------------------------------------------
 # --------------------------------------------
