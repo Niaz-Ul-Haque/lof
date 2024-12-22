@@ -1039,463 +1039,463 @@ bot.run(DISCORD_TOKEN)
 # --------------------------------------------
 
 
-### **Comprehensive Test Commands for Your Enhanced Discord Bot**
+# ### **Comprehensive Test Commands for Your Enhanced Discord Bot**
 
-To thoroughly test all functionalities of your Discord bot, below are a series of test commands using real professional League of Legends (LoL) player names and a variety of ranks ranging from Iron to Challenger. These commands will help ensure that each feature operates as intended, providing a robust and seamless experience.
+# To thoroughly test all functionalities of your Discord bot, below are a series of test commands using real professional League of Legends (LoL) player names and a variety of ranks ranging from Iron to Challenger. These commands will help ensure that each feature operates as intended, providing a robust and seamless experience.
 
----
+# ---
 
-#### **1. Help Command**
+# #### **1. Help Command**
 
-**Purpose**: Verify that the help command displays all available commands and their descriptions correctly.
+# **Purpose**: Verify that the help command displays all available commands and their descriptions correctly.
 
-**Command**:
-```
-!lf help
-```
+# **Command**:
+# ```
+# !lf help
+# ```
 
-**Expected Response**:
-An embedded message detailing all available commands, their usage, and valid ranks.
-
----
+# **Expected Response**:
+# An embedded message detailing all available commands, their usage, and valid ranks.
+
+# ---
 
-#### **2. Tiers Command**
-
-**Purpose**: Check if the bot correctly displays all tier point values.
+# #### **2. Tiers Command**
+
+# **Purpose**: Check if the bot correctly displays all tier point values.
 
-**Command**:
-```
-!lf tiers
-```
+# **Command**:
+# ```
+# !lf tiers
+# ```
 
-**Expected Response**:
-An embedded message listing all tiers with their corresponding point values in the updated format.
+# **Expected Response**:
+# An embedded message listing all tiers with their corresponding point values in the updated format.
 
----
+# ---
 
-#### **3. Join Queue Commands**
+# #### **3. Join Queue Commands**
 
-**Purpose**: Test adding players to the matchmaking queue using the `join` command.
+# **Purpose**: Test adding players to the matchmaking queue using the `join` command.
 
-**Commands**:
-```
-!lf join Faker M
-!lf join Uzi C
-!lf join Doublelift GM
-!lf join Caps P
-!lf join Bjergsen DM
-!lf join Doinb S
-!lf join Perkz SG
-!lf join Chovy G
-!lf join TheShy G
-!lf join Rookie DM
-!lf join JackeyLove C
-!lf join Caps P
-!lf join ShowMaker DM
-!lf join Khan GM
-!lf join Knight GM
-!lf join Rookie DM
-!lf join Jankos GM
-!lf join Nuguri G
-!lf join Humanoid S
-!lf join Impact DM
-!lf join U.N.O C
-```
+# **Commands**:
+# ```
+# !lf join Faker M
+# !lf join Uzi C
+# !lf join Doublelift GM
+# !lf join Caps P
+# !lf join Bjergsen DM
+# !lf join Doinb S
+# !lf join Perkz SG
+# !lf join Chovy G
+# !lf join TheShy G
+# !lf join Rookie DM
+# !lf join JackeyLove C
+# !lf join Caps P
+# !lf join ShowMaker DM
+# !lf join Khan GM
+# !lf join Knight GM
+# !lf join Rookie DM
+# !lf join Jankos GM
+# !lf join Nuguri G
+# !lf join Humanoid S
+# !lf join Impact DM
+# !lf join U.N.O C
+# ```
 
-**Explanation**:
-- Each `join` command adds a professional player to the matchmaking queue with varying ranks.
+# **Explanation**:
+# - Each `join` command adds a professional player to the matchmaking queue with varying ranks.
 
-**Expected Response**:
-For each `join` command, the bot should acknowledge the player joining the queue. Once the player pool reaches 10 players, the bot will generate balanced teams interactively using buttons for confirmation or regeneration.
+# **Expected Response**:
+# For each `join` command, the bot should acknowledge the player joining the queue. Once the player pool reaches 10 players, the bot will generate balanced teams interactively using buttons for confirmation or regeneration.
 
----
+# ---
 
-#### **4. Team Balancing Command**
+# #### **4. Team Balancing Command**
 
-**Purpose**: Manually create balanced teams with a specific set of players.
+# **Purpose**: Manually create balanced teams with a specific set of players.
 
-**Command**:
-```
-!lf team Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG
-```
+# **Command**:
+# ```
+# !lf team Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG
+# ```
 
-**Explanation**:
-- This command creates balanced teams using 10 professional players with diverse ranks.
+# **Explanation**:
+# - This command creates balanced teams using 10 professional players with diverse ranks.
 
-**Expected Response**:
-An embedded message displaying "Team 1" and "Team 2" with the respective players and their ranks. Interactive buttons for "Confirm Teams" and "Regenerate Teams" should appear below the embed.
+# **Expected Response**:
+# An embedded message displaying "Team 1" and "Team 2" with the respective players and their ranks. Interactive buttons for "Confirm Teams" and "Regenerate Teams" should appear below the embed.
 
----
+# ---
 
-#### **5. Tournament Creation Command**
+# #### **5. Tournament Creation Command**
 
-**Purpose**: Create a tournament with 60 players to test the team-making functionality.
+# **Purpose**: Create a tournament with 60 players to test the team-making functionality.
 
-**Note**: Ensure that this command is entered as a single message in Discord. If Discord's character limit is exceeded, consider splitting the command into multiple lines or messages.
+# **Note**: Ensure that this command is entered as a single message in Discord. If Discord's character limit is exceeded, consider splitting the command into multiple lines or messages.
 
-**Command**:
-```
-!lf tournament create ProLeague2024 \
-Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
-Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
-Impact DM U.N.O C Tiger WM Caps P \
-Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
-Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
-Impact DM U.N.O C Tiger WM Caps P \
-Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
-Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
-Impact DM U.N.O C Tiger WM Caps P \
-Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
-Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
-Impact DM U.N.O C Tiger WM Caps P \
-Commentator1 John Commentator2 Jane Staff1 Alice Staff2 Bob
-```
+# **Command**:
+# ```
+# !lf tournament create ProLeague2024 \
+# Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
+# Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
+# Impact DM U.N.O C Tiger WM Caps P \
+# Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
+# Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
+# Impact DM U.N.O C Tiger WM Caps P \
+# Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
+# Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
+# Impact DM U.N.O C Tiger WM Caps P \
+# Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
+# Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
+# Impact DM U.N.O C Tiger WM Caps P \
+# Commentator1 John Commentator2 Jane Staff1 Alice Staff2 Bob
+# ```
 
-**Explanation**:
-- **Tournament Name**: `ProLeague2024`
-- **Players**: 60 players with varying ranks (M, C, GM, P, DM, S, SG, G)
-  - **Sample Players**: Faker, Uzi, Doublelift, Caps, Bjergsen, Doinb, Perkz, Chovy, TheShy, Rookie, JackeyLove, ShowMaker, Khan, Knight, Jankos, Nuguri, Humanoid, Impact, U.N.O, Tiger, WM
-- **Commentators**: John, Jane
-- **Staff Members**: Alice, Bob
+# **Explanation**:
+# - **Tournament Name**: `ProLeague2024`
+# - **Players**: 60 players with varying ranks (M, C, GM, P, DM, S, SG, G)
+#   - **Sample Players**: Faker, Uzi, Doublelift, Caps, Bjergsen, Doinb, Perkz, Chovy, TheShy, Rookie, JackeyLove, ShowMaker, Khan, Knight, Jankos, Nuguri, Humanoid, Impact, U.N.O, Tiger, WM
+# - **Commentators**: John, Jane
+# - **Staff Members**: Alice, Bob
 
-**Expected Response**:
-1. An embedded message listing all 12 teams with their respective players and total points.
-2. A separate embedded message displaying the tournament brackets, showing initial matchups.
+# **Expected Response**:
+# 1. An embedded message listing all 12 teams with their respective players and total points.
+# 2. A separate embedded message displaying the tournament brackets, showing initial matchups.
 
-**Note**: Due to the repetition in player names for demonstration purposes, ensure to replace duplicates with unique names or additional pro players to accurately simulate a real tournament.
+# **Note**: Due to the repetition in player names for demonstration purposes, ensure to replace duplicates with unique names or additional pro players to accurately simulate a real tournament.
 
----
+# ---
 
-#### **6. Tournament Brackets Display Command**
+# #### **6. Tournament Brackets Display Command**
 
-**Purpose**: Display the current brackets of a specific tournament.
+# **Purpose**: Display the current brackets of a specific tournament.
 
-**Command**:
-```
-!lf tournament brackets ProLeague2024
-```
+# **Command**:
+# ```
+# !lf tournament brackets ProLeague2024
+# ```
 
-**Expected Response**:
-An embedded message showing the tournament brackets, detailing each round, match numbers, team names, and winners (if any matches have been reported).
+# **Expected Response**:
+# An embedded message showing the tournament brackets, detailing each round, match numbers, team names, and winners (if any matches have been reported).
 
----
+# ---
 
-#### **7. Reporting Match Results Command**
+# #### **7. Reporting Match Results Command**
 
-**Purpose**: Report the outcome of a specific match within a tournament.
+# **Purpose**: Report the outcome of a specific match within a tournament.
 
-**Command**:
-```
-!lf tournament report ProLeague2024 1 2
-```
+# **Command**:
+# ```
+# !lf tournament report ProLeague2024 1 2
+# ```
 
-**Explanation**:
-- `ProLeague2024`: Name of the tournament.
-- `1`: Match number to report.
-- `2`: Winning team number (e.g., Team 2).
+# **Explanation**:
+# - `ProLeague2024`: Name of the tournament.
+# - `1`: Match number to report.
+# - `2`: Winning team number (e.g., Team 2).
 
-**Expected Response**:
-A confirmation message stating that Match 1 has been updated with the winner as Team 2. The updated tournament brackets should also be displayed, reflecting the new result.
+# **Expected Response**:
+# A confirmation message stating that Match 1 has been updated with the winner as Team 2. The updated tournament brackets should also be displayed, reflecting the new result.
 
----
+# ---
 
-#### **8. Displaying Tournament Teams Command**
+# #### **8. Displaying Tournament Teams Command**
 
-**Purpose**: View all teams participating in a specific tournament.
+# **Purpose**: View all teams participating in a specific tournament.
 
-**Command**:
-```
-!lf tournament teams ProLeague2024
-```
+# **Command**:
+# ```
+# !lf tournament teams ProLeague2024
+# ```
 
-**Expected Response**:
-An embedded message listing all teams in "ProLeague2024" along with their players and total points. If commentators and staff were added during creation, they will also be displayed.
+# **Expected Response**:
+# An embedded message listing all teams in "ProLeague2024" along with their players and total points. If commentators and staff were added during creation, they will also be displayed.
 
----
+# ---
 
-#### **9. Updating a Tournament Team Member Command**
+# #### **9. Updating a Tournament Team Member Command**
 
-**Purpose**: Update a member within a specific team in a tournament.
+# **Purpose**: Update a member within a specific team in a tournament.
 
-**Command**:
-```
-!lf tournament update_member ProLeague2024 3 Uzi Faker S
-```
+# **Command**:
+# ```
+# !lf tournament update_member ProLeague2024 3 Uzi Faker S
+# ```
 
-**Explanation**:
-- `ProLeague2024`: Name of the tournament.
-- `3`: Team number to update.
-- `Uzi`: Existing member's name to be replaced.
-- `Faker`: New member's name.
-- `S`: New member's rank.
+# **Explanation**:
+# - `ProLeague2024`: Name of the tournament.
+# - `3`: Team number to update.
+# - `Uzi`: Existing member's name to be replaced.
+# - `Faker`: New member's name.
+# - `S`: New member's rank.
 
-**Expected Response**:
-A confirmation message indicating that "Uzi" has been replaced with "Faker (S)" in Team 3. An updated list of teams with their players and points should also be displayed.
+# **Expected Response**:
+# A confirmation message indicating that "Uzi" has been replaced with "Faker (S)" in Team 3. An updated list of teams with their players and points should also be displayed.
 
----
+# ---
 
-#### **10. Updating a Tournament Team Name Command**
+# #### **10. Updating a Tournament Team Name Command**
 
-**Purpose**: Change the name of a specific team within a tournament.
+# **Purpose**: Change the name of a specific team within a tournament.
 
-**Command**:
-```
-!lf tournament update_name ProLeague2024 5 "Viking Vandals"
-```
+# **Command**:
+# ```
+# !lf tournament update_name ProLeague2024 5 "Viking Vandals"
+# ```
 
-**Explanation**:
-- `ProLeague2024`: Name of the tournament.
-- `5`: Team number to rename.
-- `"Viking Vandals"`: New team name.
+# **Explanation**:
+# - `ProLeague2024`: Name of the tournament.
+# - `5`: Team number to rename.
+# - `"Viking Vandals"`: New team name.
 
-**Expected Response**:
-A confirmation message stating that Team 5 has been renamed to "Viking Vandals". An updated list of teams with their new names and current players should also be displayed.
+# **Expected Response**:
+# A confirmation message stating that Team 5 has been renamed to "Viking Vandals". An updated list of teams with their new names and current players should also be displayed.
 
----
+# ---
 
-#### **11. Clearing Data Commands**
+# #### **11. Clearing Data Commands**
 
-**Purpose**: Test the data clearing functionalities to ensure they work as expected.
+# **Purpose**: Test the data clearing functionalities to ensure they work as expected.
 
-**a. Clear Player Queue**
+# **a. Clear Player Queue**
 
-**Command**:
-```
-!lf clear players
-```
+# **Command**:
+# ```
+# !lf clear players
+# ```
 
-**Expected Response**:
-A message confirming that the player queue has been cleared.
+# **Expected Response**:
+# A message confirming that the player queue has been cleared.
 
----
+# ---
 
-**b. Clear All Tournaments**
+# **b. Clear All Tournaments**
 
-**Command**:
-```
-!lf clear tournaments
-```
+# **Command**:
+# ```
+# !lf clear tournaments
+# ```
 
-**Expected Response**:
-A message confirming that all tournaments have been cleared.
+# **Expected Response**:
+# A message confirming that all tournaments have been cleared.
 
----
+# ---
 
-**c. Clear All Data**
+# **c. Clear All Data**
 
-**Command**:
-```
-!lf clear all
-```
+# **Command**:
+# ```
+# !lf clear all
+# ```
 
-**Expected Response**:
-A message confirming that all data (players, teams, tournaments, matches) has been cleared.
+# **Expected Response**:
+# A message confirming that all data (players, teams, tournaments, matches) has been cleared.
 
----
+# ---
 
-#### **12. Interactive UI Elements Test**
+# #### **12. Interactive UI Elements Test**
 
-**Purpose**: Verify that interactive buttons for confirming or regenerating teams are functioning correctly.
+# **Purpose**: Verify that interactive buttons for confirming or regenerating teams are functioning correctly.
 
-**Steps**:
+# **Steps**:
 
-1. **Generate Teams**:
-   - Use the `join` command to add 10 players, triggering the interactive buttons.
-   ```
-   !lf join Faker M
-   !lf join Uzi C
-   !lf join Doublelift GM
-   !lf join Caps P
-   !lf join Bjergsen DM
-   !lf join Doinb S
-   !lf join Perkz SG
-   !lf join Chovy G
-   !lf join TheShy G
-   !lf join Rookie DM
-   ```
+# 1. **Generate Teams**:
+#    - Use the `join` command to add 10 players, triggering the interactive buttons.
+#    ```
+#    !lf join Faker M
+#    !lf join Uzi C
+#    !lf join Doublelift GM
+#    !lf join Caps P
+#    !lf join Bjergsen DM
+#    !lf join Doinb S
+#    !lf join Perkz SG
+#    !lf join Chovy G
+#    !lf join TheShy G
+#    !lf join Rookie DM
+#    ```
 
-2. **Interact with Buttons**:
-   - **Confirm Teams**:
-     - Click the "Confirm Teams" button.
-     - **Expected Outcome**: The embed updates to show that teams have been confirmed, and the buttons are removed.
+# 2. **Interact with Buttons**:
+#    - **Confirm Teams**:
+#      - Click the "Confirm Teams" button.
+#      - **Expected Outcome**: The embed updates to show that teams have been confirmed, and the buttons are removed.
 
-   - **Regenerate Teams**:
-     - Click the "Regenerate Teams" button.
-     - **Expected Outcome**: The bot regenerates the teams, displays the new team composition, and presents the buttons again for confirmation or further regeneration.
+#    - **Regenerate Teams**:
+#      - Click the "Regenerate Teams" button.
+#      - **Expected Outcome**: The bot regenerates the teams, displays the new team composition, and presents the buttons again for confirmation or further regeneration.
 
-3. **Timeout Handling**:
-   - If no interaction occurs within 60 seconds, the buttons will become inactive.
-   - **Expected Outcome**: After timeout, the embed remains as is without interactive elements.
+# 3. **Timeout Handling**:
+#    - If no interaction occurs within 60 seconds, the buttons will become inactive.
+#    - **Expected Outcome**: After timeout, the embed remains as is without interactive elements.
 
----
+# ---
 
-### **Automated Tournament Test Command with 60 Players**
+# ### **Automated Tournament Test Command with 60 Players**
 
-To streamline the process of creating a tournament with 60 players, use the following command. This command includes 60 players with varying ranks, two commentators, and two staff members. Ensure that you input this as a single message in Discord.
+# To streamline the process of creating a tournament with 60 players, use the following command. This command includes 60 players with varying ranks, two commentators, and two staff members. Ensure that you input this as a single message in Discord.
 
-**Command**:
-```
-!lf tournament create ProLeague2024 \
-Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
-Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
-Impact DM U.N.O C Tiger WM Caps P Faker M Uzi C Doublelift GM Caps P Bjergsen DM \
-Doinb S Perkz SG Chovy G TheShy G Rookie DM JackeyLove C ShowMaker DM Khan GM \
-Knight GM Jankos GM Nuguri G Humanoid S Impact DM U.N.O C Tiger WM Caps P Faker M \
-Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G Rookie DM \
-JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S Impact DM \
-U.N.O C Tiger WM Caps P Commentator1 John Commentator2 Jane Staff1 Alice Staff2 Bob
-```
+# **Command**:
+# ```
+# !lf tournament create ProLeague2024 \
+# Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
+# Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
+# Impact DM U.N.O C Tiger WM Caps P Faker M Uzi C Doublelift GM Caps P Bjergsen DM \
+# Doinb S Perkz SG Chovy G TheShy G Rookie DM JackeyLove C ShowMaker DM Khan GM \
+# Knight GM Jankos GM Nuguri G Humanoid S Impact DM U.N.O C Tiger WM Caps P Faker M \
+# Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G Rookie DM \
+# JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S Impact DM \
+# U.N.O C Tiger WM Caps P Commentator1 John Commentator2 Jane Staff1 Alice Staff2 Bob
+# ```
 
-**Explanation**:
-- **Tournament Name**: `ProLeague2024`
-- **Players**: 60 players with varying ranks (M, C, GM, P, DM, S, SG, G)
-  - **Sample Players**: Faker, Uzi, Doublelift, Caps, Bjergsen, Doinb, Perkz, Chovy, TheShy, Rookie, JackeyLove, ShowMaker, Khan, Knight, Jankos, Nuguri, Humanoid, Impact, U.N.O, Tiger, WM
-- **Commentators**: John, Jane
-- **Staff Members**: Alice, Bob
+# **Explanation**:
+# - **Tournament Name**: `ProLeague2024`
+# - **Players**: 60 players with varying ranks (M, C, GM, P, DM, S, SG, G)
+#   - **Sample Players**: Faker, Uzi, Doublelift, Caps, Bjergsen, Doinb, Perkz, Chovy, TheShy, Rookie, JackeyLove, ShowMaker, Khan, Knight, Jankos, Nuguri, Humanoid, Impact, U.N.O, Tiger, WM
+# - **Commentators**: John, Jane
+# - **Staff Members**: Alice, Bob
 
-**Steps**:
-1. **Execute the Command**: Paste the entire command into your Discord server where the bot is active.
-2. **Bot Response**:
-   - An embedded message listing all 12 teams with their respective players and total points.
-   - A separate embedded message displaying the tournament brackets, showing initial matchups.
+# **Steps**:
+# 1. **Execute the Command**: Paste the entire command into your Discord server where the bot is active.
+# 2. **Bot Response**:
+#    - An embedded message listing all 12 teams with their respective players and total points.
+#    - A separate embedded message displaying the tournament brackets, showing initial matchups.
 
-**Note**: Ensure that player names are unique to accurately simulate a real tournament. Replace duplicates with additional pro players if necessary.
+# **Note**: Ensure that player names are unique to accurately simulate a real tournament. Replace duplicates with additional pro players if necessary.
 
----
+# ---
 
-### **Additional Test Commands for Comprehensive Coverage**
+# ### **Additional Test Commands for Comprehensive Coverage**
 
-To thoroughly test all functionalities, here are additional commands you can use:
+# To thoroughly test all functionalities, here are additional commands you can use:
 
-#### **a. Confirm and Regenerate Teams**
+# #### **a. Confirm and Regenerate Teams**
 
-After generating teams using the `join` or `team` commands, interact with the buttons to confirm or regenerate teams.
+# After generating teams using the `join` or `team` commands, interact with the buttons to confirm or regenerate teams.
 
-**Steps**:
+# **Steps**:
 
-1. **Generate Teams**:
-   ```
-   !lf join Faker M
-   !lf join Uzi C
-   !lf join Doublelift GM
-   !lf join Caps P
-   !lf join Bjergsen DM
-   !lf join Doinb S
-   !lf join Perkz SG
-   !lf join Chovy G
-   !lf join TheShy G
-   !lf join Rookie DM
-   ```
-   - This will generate "Team 1" and "Team 2" with the first 10 players.
+# 1. **Generate Teams**:
+#    ```
+#    !lf join Faker M
+#    !lf join Uzi C
+#    !lf join Doublelift GM
+#    !lf join Caps P
+#    !lf join Bjergsen DM
+#    !lf join Doinb S
+#    !lf join Perkz SG
+#    !lf join Chovy G
+#    !lf join TheShy G
+#    !lf join Rookie DM
+#    ```
+#    - This will generate "Team 1" and "Team 2" with the first 10 players.
 
-2. **Interact with Buttons**:
-   - **Confirm Teams**: Click the "Confirm Teams" button to finalize the teams.
-   - **Regenerate Teams**: Click the "Regenerate Teams" button to create a new set of balanced teams.
+# 2. **Interact with Buttons**:
+#    - **Confirm Teams**: Click the "Confirm Teams" button to finalize the teams.
+#    - **Regenerate Teams**: Click the "Regenerate Teams" button to create a new set of balanced teams.
 
-**Expected Outcomes**:
-- **Confirm Teams**: The embed updates to show confirmation, and the buttons are removed.
-- **Regenerate Teams**: New teams are generated and displayed with the interactive buttons reappearing for further confirmation or regeneration.
+# **Expected Outcomes**:
+# - **Confirm Teams**: The embed updates to show confirmation, and the buttons are removed.
+# - **Regenerate Teams**: New teams are generated and displayed with the interactive buttons reappearing for further confirmation or regeneration.
 
----
+# ---
 
-#### **b. Update a Team Member**
+# #### **b. Update a Team Member**
 
-**Command**:
-```
-!lf tournament update_member ProLeague2024 3 Uzi Faker S
-```
+# **Command**:
+# ```
+# !lf tournament update_member ProLeague2024 3 Uzi Faker S
+# ```
 
-**Explanation**:
-- `ProLeague2024`: Name of the tournament.
-- `3`: Team number to update.
-- `Uzi`: Existing member to be replaced.
-- `Faker`: New member's name.
-- `S`: New member's rank.
+# **Explanation**:
+# - `ProLeague2024`: Name of the tournament.
+# - `3`: Team number to update.
+# - `Uzi`: Existing member to be replaced.
+# - `Faker`: New member's name.
+# - `S`: New member's rank.
 
-**Expected Response**:
-A confirmation message indicating that "Uzi" has been replaced with "Faker (S)" in Team 3. An updated list of teams with their players and points should also be displayed.
+# **Expected Response**:
+# A confirmation message indicating that "Uzi" has been replaced with "Faker (S)" in Team 3. An updated list of teams with their players and points should also be displayed.
 
----
+# ---
 
-#### **c. Update a Team Name**
+# #### **c. Update a Team Name**
 
-**Command**:
-```
-!lf tournament update_name ProLeague2024 5 "Viking Vandals"
-```
+# **Command**:
+# ```
+# !lf tournament update_name ProLeague2024 5 "Viking Vandals"
+# ```
 
-**Explanation**:
-- `ProLeague2024`: Name of the tournament.
-- `5`: Team number to rename.
-- `"Viking Vandals"`: New team name.
+# **Explanation**:
+# - `ProLeague2024`: Name of the tournament.
+# - `5`: Team number to rename.
+# - `"Viking Vandals"`: New team name.
 
-**Expected Response**:
-A confirmation message stating that Team 5 has been renamed to "Viking Vandals". An updated list of teams with their new names and current players should also be displayed.
+# **Expected Response**:
+# A confirmation message stating that Team 5 has been renamed to "Viking Vandals". An updated list of teams with their new names and current players should also be displayed.
 
----
+# ---
 
-#### **d. Clear Specific Data**
+# #### **d. Clear Specific Data**
 
-**Commands**:
+# **Commands**:
 
-- **Clear Player Queue**:
-  ```
-  !lf clear players
-  ```
-  **Expected Response**: "Player queue has been cleared."
+# - **Clear Player Queue**:
+#   ```
+#   !lf clear players
+#   ```
+#   **Expected Response**: "Player queue has been cleared."
 
-- **Clear All Tournaments**:
-  ```
-  !lf clear tournaments
-  ```
-  **Expected Response**: "All tournaments have been cleared."
+# - **Clear All Tournaments**:
+#   ```
+#   !lf clear tournaments
+#   ```
+#   **Expected Response**: "All tournaments have been cleared."
 
-- **Clear All Data**:
-  ```
-  !lf clear all
-  ```
-  **Expected Response**: "All data has been cleared."
+# - **Clear All Data**:
+#   ```
+#   !lf clear all
+#   ```
+#   **Expected Response**: "All data has been cleared."
 
----
+# ---
 
-### **Verifying Interactive UI Elements**
+# ### **Verifying Interactive UI Elements**
 
-To ensure that the interactive UI elements (buttons) are functioning correctly, follow these steps:
+# To ensure that the interactive UI elements (buttons) are functioning correctly, follow these steps:
 
-1. **Generate Teams**:
-   - Use the `join` command to add 10 players, triggering the interactive buttons.
-   ```
-   !lf join Faker M
-   !lf join Uzi C
-   !lf join Doublelift GM
-   !lf join Caps P
-   !lf join Bjergsen DM
-   !lf join Doinb S
-   !lf join Perkz SG
-   !lf join Chovy G
-   !lf join TheShy G
-   !lf join Rookie DM
-   ```
+# 1. **Generate Teams**:
+#    - Use the `join` command to add 10 players, triggering the interactive buttons.
+#    ```
+#    !lf join Faker M
+#    !lf join Uzi C
+#    !lf join Doublelift GM
+#    !lf join Caps P
+#    !lf join Bjergsen DM
+#    !lf join Doinb S
+#    !lf join Perkz SG
+#    !lf join Chovy G
+#    !lf join TheShy G
+#    !lf join Rookie DM
+#    ```
 
-2. **Interact with Buttons**:
-   - **Confirm Teams**:
-     - Click the "Confirm Teams" button.
-     - **Expected Outcome**: The embed updates to show that teams have been confirmed, and the buttons disappear.
+# 2. **Interact with Buttons**:
+#    - **Confirm Teams**:
+#      - Click the "Confirm Teams" button.
+#      - **Expected Outcome**: The embed updates to show that teams have been confirmed, and the buttons disappear.
 
-   - **Regenerate Teams**:
-     - Click the "Regenerate Teams" button.
-     - **Expected Outcome**: The bot regenerates the teams, displays the new team composition, and presents the buttons again for confirmation or further regeneration.
+#    - **Regenerate Teams**:
+#      - Click the "Regenerate Teams" button.
+#      - **Expected Outcome**: The bot regenerates the teams, displays the new team composition, and presents the buttons again for confirmation or further regeneration.
 
-3. **Timeout Handling**:
-   - If no interaction occurs within 60 seconds, the buttons will become inactive.
-   - **Expected Outcome**: After timeout, the embed remains as is without interactive elements.
+# 3. **Timeout Handling**:
+#    - If no interaction occurs within 60 seconds, the buttons will become inactive.
+#    - **Expected Outcome**: After timeout, the embed remains as is without interactive elements.
 
----
+# ---
 
-### **Final Notes**
+# ### **Final Notes**
 
-By executing the above test commands, you can comprehensively verify that all functionalities of your Discord bot are operational. Ensure that each command behaves as expected and interact with the UI elements to confirm their proper functionality.
+# By executing the above test commands, you can comprehensively verify that all functionalities of your Discord bot are operational. Ensure that each command behaves as expected and interact with the UI elements to confirm their proper functionality.
 
-If you encounter any issues or unexpected behaviors during testing, consider reviewing the bot's code for potential bugs or inconsistencies. Additionally, ensure that the bot has the necessary permissions in your Discord server to execute commands and interact with users effectively.
+# If you encounter any issues or unexpected behaviors during testing, consider reviewing the bot's code for potential bugs or inconsistencies. Additionally, ensure that the bot has the necessary permissions in your Discord server to execute commands and interact with users effectively.
 
-Feel free to reach out if you need further assistance or encounter any challenges during testing!
+# Feel free to reach out if you need further assistance or encounter any challenges during testing!
