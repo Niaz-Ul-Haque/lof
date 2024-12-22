@@ -18,7 +18,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.presences = True
-bot = commands.Bot(command_prefix='!lf ', intents=intents)
+bot = commands.Bot(command_prefix='!lf ', intents=intents, help_command=None)
 
 # Updated Tier points mapping
 TIER_POINTS = {
