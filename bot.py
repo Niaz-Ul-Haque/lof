@@ -224,13 +224,6 @@ class TeamConfirmationView(View):
         self.teams = teams
         self.original_players = original_players
 
-    # @discord.ui.button(label="Confirm Teams", style=discord.ButtonStyle.green)
-    # async def confirm(self, interaction: discord.Interaction, button: Button):
-    #     """Handles team confirmation."""
-    #     embed = discord.Embed(title="Teams Confirmed!", description="Teams have been successfully confirmed.", color=0x00ff00)
-    #     await interaction.response.edit_message(embed=embed, view=None)
-    #     self.stop()
-
     @discord.ui.button(label="Regenerate Teams", style=discord.ButtonStyle.red)
     async def regenerate(self, interaction: discord.Interaction, button: Button):
         """Handles team regeneration."""
@@ -291,7 +284,6 @@ def create_balanced_teams(players):
             best_team1 = team1
             best_team2 = team2
 
-    # Assign team names as "Team 1" and "Team 2"
     team1_name = "Team 1"
     team2_name = "Team 2"
 
@@ -304,10 +296,8 @@ def create_balanced_teams(players):
     embed.add_field(name=f"{team2_name}", value=team2_info, inline=True)
     embed.add_field(name="Balance Info", value=f"Point Difference: {best_diff:.1f} points", inline=False)
 
-    # Add interactive buttons for confirmation
     view = TeamConfirmationView(teams=[team1_name, team2_name], original_players=players)
     embed.set_footer(text="Please confirm or regenerate the teams using the buttons below.")
-
     return embed, view
 
 def create_balanced_tournament_teams(players):
@@ -338,7 +328,9 @@ async def on_ready():
 async def help_command(ctx):
     """Displays the helpme message with all available commands."""
     embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
-    embed.add_field(name="Available Commands", value=(
+
+    # First half of commands
+    commands_part1 = (
         "1. `!lf team [player1] [rank1] [player2] [rank2] ...`\n"
         "   - Creates balanced 5v5 teams named 'Team 1' and 'Team 2'\n"
         "   - Requires exactly 10 players with their ranks\n\n"
@@ -354,6 +346,10 @@ async def help_command(ctx):
         "   - Remove a commentator from an existing tournament\n\n"
         "7. `!lf tournament add_staff [tournament_name] [staff_name]`\n"
         "   - Add a staff member to an existing tournament\n\n"
+    )
+
+    # Second half of commands
+    commands_part2 = (
         "8. `!lf tournament remove_staff [tournament_name] [staff_name]`\n"
         "   - Remove a staff member from an existing tournament\n\n"
         "9. `!lf tournament report [tournament_name] [match_number] [winning_team_number]`\n"
@@ -369,10 +365,14 @@ async def help_command(ctx):
         "14. `!lf clear [option]`\n"
         "    - Clear specific data. Options: players, teams, tournaments, matches, all\n\n"
         "15. `!lf helpme`\n"
-        "    - Shows this help message"
-    ), inline=False)
+        "    - Shows this help message\n"
+    )
 
-    embed.add_field(name="Valid Ranks", value=(
+    embed.add_field(name="Available Commands (1/2)", value=commands_part1, inline=False)
+    embed.add_field(name="Available Commands (2/2)", value=commands_part2, inline=False)
+
+    # Ranks are short enough to fit in one field
+    ranks_info = (
         "Iron: I\n"
         "Iron-Bronze: IB\n"
         "Bronze: B\n"
@@ -390,7 +390,8 @@ async def help_command(ctx):
         "Master: M\n"
         "Grandmaster: GM\n"
         "Challenger: C"
-    ), inline=False)
+    )
+    embed.add_field(name="Valid Ranks", value=ranks_info, inline=False)
 
     await ctx.send(embed=embed)
 
@@ -413,7 +414,6 @@ async def join_queue(ctx, name: str, rank: str):
         return
 
     player_info = (name, rank, TIER_POINTS[rank])
-
     if player_info in player_pool:
         await ctx.send(f"{name} is already in the queue.")
         return
@@ -450,7 +450,6 @@ async def team_balance(ctx, *, input_text=None):
 
         embed, view = create_balanced_teams(players)
         await ctx.send(embed=embed, view=view)
-
     except Exception as e:
         await ctx.send("Error creating teams. Use `!lf help` for the correct format.")
         print(f"Error: {str(e)}")  # For debugging
@@ -829,7 +828,7 @@ bot.run(DISCORD_TOKEN)
 
 # **Command**:
 # ```
-# !lf help
+# !lf helpme
 # ```
 
 # **Expected Response**:
