@@ -216,48 +216,20 @@ class Tournament:
         self.teams[team_idx]['name'] = new_name
         return True
 
-
 class TeamConfirmationView(View):
     """A view for confirming or regenerating teams."""
 
-    def __init__(self, team1_name, team1_players, team2_name, team2_players, original_players):
+    def __init__(self, teams, original_players):
         super().__init__(timeout=60)  # Timeout after 60 seconds
-        self.team1_name = team1_name
-        self.team1_players = team1_players
-        self.team2_name = team2_name
-        self.team2_players = team2_players
+        self.teams = teams
         self.original_players = original_players
 
-    @discord.ui.button(label="Confirm Teams", style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: Button):
-        """Handles team confirmation."""
-        # Create confirmation embed
-        embed = discord.Embed(
-            title="Teams Confirmed!",
-            description="Teams have been successfully confirmed.",
-            color=0x00ff00
-        )
-        
-        # Format team 1 information
-        team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in self.team1_players])
-        # Format team 2 information
-        team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in self.team2_players])
-        # Calculate point difference
-        team1_points = sum(player[2] for player in self.team1_players)
-        team2_points = sum(player[2] for player in self.team2_players)
-        point_diff = abs(team1_points - team2_points)
-
-        # Add team fields to embed
-        embed.add_field(name=self.team1_name, value=team1_info, inline=True)
-        embed.add_field(name=self.team2_name, value=team2_info, inline=True)
-        embed.add_field(name="Balance Info", value=f"Point Difference: {point_diff:.1f} points", inline=False)
-        
-        # Optionally, add footer or additional information
-        embed.set_footer(text="Teams have been confirmed. Good luck!")
-
-        # Edit the original message with the new embed and remove buttons
-        await interaction.response.edit_message(embed=embed, view=None)
-        self.stop()
+    # @discord.ui.button(label="Confirm Teams", style=discord.ButtonStyle.green)
+    # async def confirm(self, interaction: discord.Interaction, button: Button):
+    #     """Handles team confirmation."""
+    #     embed = discord.Embed(title="Teams Confirmed!", description="Teams have been successfully confirmed.", color=0x00ff00)
+    #     await interaction.response.edit_message(embed=embed, view=None)
+    #     self.stop()
 
     @discord.ui.button(label="Regenerate Teams", style=discord.ButtonStyle.red)
     async def regenerate(self, interaction: discord.Interaction, button: Button):
@@ -265,28 +237,6 @@ class TeamConfirmationView(View):
         embed, view = create_balanced_teams(self.original_players)
         await interaction.response.edit_message(embed=embed, view=view)
         self.stop()
-
-# class TeamConfirmationView(View):
-#     """A view for confirming or regenerating teams."""
-
-#     def __init__(self, teams, original_players):
-#         super().__init__(timeout=60)  # Timeout after 60 seconds
-#         self.teams = teams
-#         self.original_players = original_players
-
-#     @discord.ui.button(label="Confirm Teams", style=discord.ButtonStyle.green)
-#     async def confirm(self, interaction: discord.Interaction, button: Button):
-#         """Handles team confirmation."""
-#         embed = discord.Embed(title="Teams Confirmed!", description="Teams have been successfully confirmed.", color=0x00ff00)
-#         await interaction.response.edit_message(embed=embed, view=None)
-#         self.stop()
-
-#     @discord.ui.button(label="Regenerate Teams", style=discord.ButtonStyle.red)
-#     async def regenerate(self, interaction: discord.Interaction, button: Button):
-#         """Handles team regeneration."""
-#         embed, view = create_balanced_teams(self.original_players)
-#         await interaction.response.edit_message(embed=embed, view=view)
-#         self.stop()
 
 def format_tier_points():
     """Format tier points in a more compact way."""
