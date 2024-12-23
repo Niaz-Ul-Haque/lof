@@ -216,18 +216,46 @@ class Tournament:
         self.teams[team_idx]['name'] = new_name
         return True
 
+
 class TeamConfirmationView(View):
     """A view for confirming or regenerating teams."""
 
-    def __init__(self, teams, original_players):
+    def __init__(self, team1_name, team1_players, team2_name, team2_players, original_players):
         super().__init__(timeout=60)  # Timeout after 60 seconds
-        self.teams = teams
+        self.team1_name = team1_name
+        self.team1_players = team1_players
+        self.team2_name = team2_name
+        self.team2_players = team2_players
         self.original_players = original_players
 
     @discord.ui.button(label="Confirm Teams", style=discord.ButtonStyle.green)
     async def confirm(self, interaction: discord.Interaction, button: Button):
         """Handles team confirmation."""
-        embed = discord.Embed(title="Teams Confirmed!", description="Teams have been successfully confirmed.", color=0x00ff00)
+        # Create confirmation embed
+        embed = discord.Embed(
+            title="Teams Confirmed!",
+            description="Teams have been successfully confirmed.",
+            color=0x00ff00
+        )
+        
+        # Format team 1 information
+        team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in self.team1_players])
+        # Format team 2 information
+        team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in self.team2_players])
+        # Calculate point difference
+        team1_points = sum(player[2] for player in self.team1_players)
+        team2_points = sum(player[2] for player in self.team2_players)
+        point_diff = abs(team1_points - team2_points)
+
+        # Add team fields to embed
+        embed.add_field(name=self.team1_name, value=team1_info, inline=True)
+        embed.add_field(name=self.team2_name, value=team2_info, inline=True)
+        embed.add_field(name="Balance Info", value=f"Point Difference: {point_diff:.1f} points", inline=False)
+        
+        # Optionally, add footer or additional information
+        embed.set_footer(text="Teams have been confirmed. Good luck!")
+
+        # Edit the original message with the new embed and remove buttons
         await interaction.response.edit_message(embed=embed, view=None)
         self.stop()
 
@@ -237,6 +265,28 @@ class TeamConfirmationView(View):
         embed, view = create_balanced_teams(self.original_players)
         await interaction.response.edit_message(embed=embed, view=view)
         self.stop()
+
+# class TeamConfirmationView(View):
+#     """A view for confirming or regenerating teams."""
+
+#     def __init__(self, teams, original_players):
+#         super().__init__(timeout=60)  # Timeout after 60 seconds
+#         self.teams = teams
+#         self.original_players = original_players
+
+#     @discord.ui.button(label="Confirm Teams", style=discord.ButtonStyle.green)
+#     async def confirm(self, interaction: discord.Interaction, button: Button):
+#         """Handles team confirmation."""
+#         embed = discord.Embed(title="Teams Confirmed!", description="Teams have been successfully confirmed.", color=0x00ff00)
+#         await interaction.response.edit_message(embed=embed, view=None)
+#         self.stop()
+
+#     @discord.ui.button(label="Regenerate Teams", style=discord.ButtonStyle.red)
+#     async def regenerate(self, interaction: discord.Interaction, button: Button):
+#         """Handles team regeneration."""
+#         embed, view = create_balanced_teams(self.original_players)
+#         await interaction.response.edit_message(embed=embed, view=view)
+#         self.stop()
 
 def format_tier_points():
     """Format tier points in a more compact way."""
@@ -334,9 +384,9 @@ def create_balanced_tournament_teams(players):
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
 
-@bot.command(name='help')
+@bot.command(name='helpme')
 async def help_command(ctx):
-    """Displays the help message with all available commands."""
+    """Displays the helpme message with all available commands."""
     embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
     embed.add_field(name="Available Commands", value=(
         "1. `!lf team [player1] [rank1] [player2] [rank2] ...`\n"
@@ -368,7 +418,7 @@ async def help_command(ctx):
         "    - Update the name of a team in the tournament\n\n"
         "14. `!lf clear [option]`\n"
         "    - Clear specific data. Options: players, teams, tournaments, matches, all\n\n"
-        "15. `!lf help`\n"
+        "15. `!lf helpme`\n"
         "    - Shows this help message"
     ), inline=False)
 
@@ -921,11 +971,8 @@ bot.run(DISCORD_TOKEN)
 # Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
 # Impact DM U.N.O C Tiger WM Caps P \
 # Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
-# Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
-# Impact DM U.N.O C Tiger WM Caps P \
-# Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G \
-# Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S \
-# Impact DM U.N.O C Tiger WM Caps P \
+# Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S Impact DM U.N.O C Tiger WM Caps P \
+# Faker M Uzi C Doublelift GM Caps P Bjergsen DM Doinb S Perkz SG Chovy G TheShy G Rookie DM JackeyLove C ShowMaker DM Khan GM Knight GM Jankos GM Nuguri G Humanoid S Impact DM U.N.O C Tiger WM Caps P 
 # Commentator1 John Commentator2 Jane Staff1 Alice Staff2 Bob
 # ```
 
