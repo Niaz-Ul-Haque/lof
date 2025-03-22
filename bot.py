@@ -18,6 +18,7 @@ intents.message_content = True
 intents.members = True
 intents.presences = True
 bot = commands.Bot(command_prefix='!lf ', intents=intents, help_command=None)
+global player_pool, queue_timer, queue_start_time
 
 TIER_POINTS = {
     "I": 1.0,     # Iron
@@ -143,7 +144,6 @@ class QueueJoinView(View):
             )
             return
         
-        global player_pool, queue_timer, queue_start_time
         
         player_info = (name, found_rank, TIER_POINTS[found_rank])
         player_pool.append(player_info)
