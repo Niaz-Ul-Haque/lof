@@ -75,7 +75,7 @@ TEAM_NAMES = [
 ]
 
 async def display_queue(ctx):
-    """Displays the current queue as an embed."""
+    """Displays the current queue as an embed and includes a join button."""
     embed = discord.Embed(title="League of Legends Match Queue", color=0x00ff00)
     
     if not player_pool:
@@ -94,7 +94,8 @@ async def display_queue(ctx):
                            value=f"{int(remaining_mins)}m {int(remaining_secs)}s until queue reset", 
                            inline=False)
     
-    return embed
+    view = QueueJoinView(ctx)
+    return embed, view
 
 async def reset_queue_timer(ctx):
     """Reset the queue after 15 minutes."""
@@ -105,12 +106,12 @@ async def reset_queue_timer(ctx):
         if player_pool:
             await ctx.send("⏰ Queue has been reset due to inactivity (15 minutes timer expired).")
             player_pool = []
-            await ctx.send(embed=await display_queue(ctx))
+            embed, view = await display_queue(ctx)
+            await ctx.send(embed=embed, view=view)
     except asyncio.CancelledError:
         pass 
     finally:
         queue_timer = None
-
 
 class QueueJoinView(View):
     """A view for the join queue button."""
@@ -122,6 +123,8 @@ class QueueJoinView(View):
     @discord.ui.button(label="Join Queue", style=discord.ButtonStyle.green, emoji="✅")
     async def join_queue_button(self, interaction: discord.Interaction, button: Button):
         """Handles join queue button click."""
+        global player_pool, queue_timer, queue_start_time
+        
         member = interaction.user
         name = member.display_name
         
@@ -144,7 +147,6 @@ class QueueJoinView(View):
             )
             return
         
-        
         player_info = (name, found_rank, TIER_POINTS[found_rank])
         player_pool.append(player_info)
         
@@ -154,8 +156,8 @@ class QueueJoinView(View):
                 queue_timer.cancel()
             queue_timer = asyncio.create_task(reset_queue_timer(self.ctx))
         
-        embed = await display_queue(self.ctx)
-        await interaction.response.send_message(f"✅ {name} joined the queue as {found_rank}.", embed=embed)
+        embed, view = await display_queue(self.ctx)
+        await interaction.response.send_message(f"✅ {name} joined the queue as {found_rank}.", embed=embed, view=view)
         
         if len(player_pool) >= 10:
             if queue_timer and not queue_timer.done():
@@ -169,17 +171,18 @@ class QueueJoinView(View):
             if player_pool:
                 queue_start_time = asyncio.get_event_loop().time()
                 queue_timer = asyncio.create_task(reset_queue_timer(self.ctx))
-                remaining_embed = await display_queue(self.ctx)
-                await self.ctx.send("Players remaining in queue:", embed=remaining_embed)
-                
+                remaining_embed, remaining_view = await display_queue(self.ctx)
+                await self.ctx.send("Players remaining in queue:", embed=remaining_embed, view=remaining_view)
+            
             lobby_embed = discord.Embed(
                 title="Custom Game Lobby", 
                 description="Click the button below to join the queue!",
                 color=0x00ff00
             )
             lobby_embed.add_field(name="Queue Status", value=f"{len(player_pool)}/10 players")
-            await interaction.message.edit(embed=lobby_embed)
-
+            
+            lobby_view = QueueJoinView(self.ctx)
+            await interaction.message.edit(embed=lobby_embed, view=lobby_view)
 
 @bot.command(name='lobby')
 async def start_lobby(ctx):
@@ -212,8 +215,8 @@ async def start_lobby(ctx):
         await ctx.send("Note: I couldn't pin the lobby message. For best visibility, an admin should pin it manually.")
     
     if player_pool:
-        queue_embed = await display_queue(ctx)
-        await ctx.send("Current queue:", embed=queue_embed)
+        queue_embed, queue_view = await display_queue(ctx)
+        await ctx.send("Current queue:", embed=queue_embed, view=queue_view)
 
 
 class Tournament:
@@ -607,23 +610,23 @@ async def join_queue(ctx, name=None, rank=None):
             queue_timer.cancel()
         queue_timer = asyncio.create_task(reset_queue_timer(ctx))
     
-    embed = await display_queue(ctx)
-    await ctx.send(f"✅ {name} joined the queue as {rank}.", embed=embed)
+    embed, view = await display_queue(ctx)
+    await ctx.send(f"✅ {name} joined the queue as {rank}.", embed=embed, view=view)
 
     if len(player_pool) >= 10:
         if queue_timer and not queue_timer.done():
             queue_timer.cancel()
             queue_timer = None
         
-        embed, view = create_balanced_teams(player_pool[:10])
-        await ctx.send("🎮 Queue is full! Creating balanced teams:", embed=embed, view=view)
+        teams_embed, teams_view = create_balanced_teams(player_pool[:10])
+        await ctx.send("🎮 Queue is full! Creating balanced teams:", embed=teams_embed, view=teams_view)
         del player_pool[:10]
         
         if player_pool:
             queue_start_time = asyncio.get_event_loop().time()
             queue_timer = asyncio.create_task(reset_queue_timer(ctx))
-            embed = await display_queue(ctx)
-            await ctx.send("Players remaining in queue:", embed=embed)
+            remaining_embed, remaining_view = await display_queue(ctx)
+            await ctx.send("Players remaining in queue:", embed=remaining_embed, view=remaining_view)
 
 @bot.command(name='queueclear')
 async def clear_queue(ctx):
@@ -642,14 +645,14 @@ async def clear_queue(ctx):
         queue_timer = None
     
     await ctx.send(f"🧹 Queue cleared. Removed {player_count} player(s).")
-    embed = await display_queue(ctx)
-    await ctx.send(embed=embed)
+    embed, view = await display_queue(ctx)
+    await ctx.send(embed=embed, view=view)
 
 @bot.command(name='queue')
 async def show_queue(ctx):
     """Shows the current queue."""
-    embed = await display_queue(ctx)
-    await ctx.send(embed=embed)
+    embed, view = await display_queue(ctx)
+    await ctx.send(embed=embed, view=view)
 
 @bot.command(name='team')
 async def team_balance(ctx, *, input_text=None):
