@@ -39,6 +39,26 @@ TIER_POINTS = {
     "C": 30.0     # Challenger
 }
 
+ROLE_TO_RANK = {
+    "Iron": "I",
+    "Iron-Bronze": "IB",
+    "Bronze": "B",
+    "Bronze-Silver": "BS",
+    "Silver": "S", 
+    "Silver-Gold": "SG",
+    "Gold": "G",
+    "Gold-Platinum": "GP",
+    "Platinum": "P",
+    "Platinum-Emerald": "PE",
+    "Emerald": "E",
+    "Emerald-Diamond": "ED",
+    "Diamond": "D",
+    "Diamond-Master": "DM",
+    "Master": "M",
+    "Grandmaster": "GM",
+    "Challenger": "C"
+}
+
 player_pool = []
 tournaments = {}
 queue_timer = None
@@ -66,7 +86,7 @@ async def display_queue(ctx):
         embed.add_field(name="Status", value=f"{len(player_pool)}/10 players in queue", inline=False)
         
         if queue_timer and not queue_timer.done():
-            elapsed = (asyncio.get_event_loop().time() - queue_start_time)
+            elapsed = (asyncio.get_event_loop().time() - queue_start_time)  # in seconds
             remaining_mins = max(0, (15*60 - elapsed) // 60)
             remaining_secs = max(0, (15*60 - elapsed) % 60)
             embed.add_field(name="Time Remaining", 
@@ -93,8 +113,8 @@ async def reset_queue_timer(ctx):
 class Tournament:
     def __init__(self, name, teams, commentators=None, staff=None):
         self.name = name
-        self.teams = teams  
-        self.matches = []   
+        self.teams = teams 
+        self.matches = [] 
         self.commentators = commentators if commentators else []
         self.staff = staff if staff else []
         self.create_brackets()
@@ -251,7 +271,7 @@ class TeamConfirmationView(View):
     """A view for confirming or regenerating teams."""
 
     def __init__(self, teams, original_players):
-        super().__init__(timeout=60)  
+        super().__init__(timeout=60) 
         self.teams = teams
         self.original_players = original_players
 
@@ -364,8 +384,9 @@ async def help_command(ctx):
         "   - Requires exactly 10 players with their ranks\n\n"
         "2. `!lf tiers`\n"
         "   - Shows all tier point values\n\n"
-        "3. `!lf join [name] [rank]`\n"
-        "   - Join the player queue for a quick match\n\n"
+        "3. `!lf join`\n"
+        "   - Join the player queue using your Discord name and rank role\n"
+        "   - You can also use `!lf join [name] [rank]` to specify a different name or rank\n\n"
         "4. `!lf queue`\n"
         "   - Shows the current queue status\n\n"
         "5. `!lf queueclear`\n"
@@ -436,21 +457,42 @@ async def tiers_command(ctx):
     await ctx.send(embed=embed)
 
 @bot.command(name='join')
-async def join_queue(ctx, name: str, rank: str):
-    """Allows a player to join the matchmaking queue."""
+async def join_queue(ctx, name=None, rank=None):
+    """
+    Allows a player to join the matchmaking queue.
+    If no name is provided, uses the Discord username.
+    If no rank is provided, attempts to detect from Discord roles.
+    """
     global player_pool, queue_timer, queue_start_time
     
-    rank = rank.upper()
-    if rank not in TIER_POINTS:
-        await ctx.send(f"Invalid rank '{rank}'. Use `!lf help` to see valid ranks.")
-        return
-
-    player_info = (name, rank, TIER_POINTS[rank])
+    if name is None:
+        name = ctx.author.display_name
+    
     for existing_player in player_pool:
         if existing_player[0].lower() == name.lower():
             await ctx.send(f"{name} is already in the queue.")
             return
-
+    
+    if rank is not None:
+        rank = rank.upper()
+        if rank not in TIER_POINTS:
+            await ctx.send(f"Invalid rank '{rank}'. Use `!lf help` to see valid ranks.")
+            return
+    else:
+        found_rank = None
+        for role in ctx.author.roles:
+            role_name = role.name
+            if role_name in ROLE_TO_RANK:
+                found_rank = ROLE_TO_RANK[role_name]
+                break
+        
+        if found_rank is None:
+            await ctx.send("❌ No rank role detected. Please assign yourself a rank role or use `!lf join [name] [rank]` to specify your rank.")
+            return
+        
+        rank = found_rank
+    
+    player_info = (name, rank, TIER_POINTS[rank])
     player_pool.append(player_info)
     
     if len(player_pool) == 1:
@@ -529,7 +571,7 @@ async def team_balance(ctx, *, input_text=None):
         await ctx.send(embed=embed, view=view)
     except Exception as e:
         await ctx.send("Error creating teams. Use `!lf help` for the correct format.")
-        print(f"Error: {str(e)}")  # For debugging
+        print(f"Error: {str(e)}") 
 
 @bot.group(name='tournament', invoke_without_command=True)
 async def tournament(ctx):
@@ -543,7 +585,7 @@ async def tournament_create(ctx, tournament_name: str, *args):
     Format: !lf tournament create [tournament_name] [player1] [rank1] ... [commentator1] [commentator2] [staff1] [staff2]
     Commentators and staff are optional.
     """
-    required_player_args = 10 * 2  
+    required_player_args = 10 * 2
     if len(args) < required_player_args:
         await ctx.send("Please provide a tournament name and at least 10 players with their ranks.\nUse `!lf help` for more information.")
         return
