@@ -6,21 +6,19 @@ from dotenv import load_dotenv
 from itertools import combinations
 import math
 import random
+import asyncio
+import datetime
 
-# Load environment variables
 load_dotenv()
 
-# Bot configuration
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Initialize bot with explicit intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.presences = True
 bot = commands.Bot(command_prefix='!lf ', intents=intents, help_command=None)
 
-# Updated Tier points mapping
 TIER_POINTS = {
     "I": 1.0,     # Iron
     "IB": 2.0,    # Iron-Bronze
@@ -43,8 +41,9 @@ TIER_POINTS = {
 
 player_pool = []
 tournaments = {}
+queue_timer = None
+queue_start_time = None
 
-# Updated Team Names with Funny and Country-Related (Dark Humor)
 TEAM_NAMES = [
     "Sasquatch Squad", "Viking Vandals", "Pirate Pythons", "Ninja Nachos", "Zombie Zebras",
     "Wacky Wombats", "Grumpy Geese", "Mad Hooligans", "Crying Cowboys", "Reckless Rhinos",
@@ -54,11 +53,48 @@ TEAM_NAMES = [
     "Grim Griffins", "Moody Meerkats", "Jaded Jaguars", "Perky Porcupines", "Restless Ravers"
 ]
 
+async def display_queue(ctx):
+    """Displays the current queue as an embed."""
+    embed = discord.Embed(title="League of Legends Match Queue", color=0x00ff00)
+    
+    if not player_pool:
+        embed.description = "Queue is empty. Use `!lf join [name] [rank]` to join!"
+    else:
+        players_list = "\n".join([f"{idx+1}. {player[0]} ({player[1]} - {player[2]} pts)" 
+                                 for idx, player in enumerate(player_pool)])
+        embed.description = players_list
+        embed.add_field(name="Status", value=f"{len(player_pool)}/10 players in queue", inline=False)
+        
+        if queue_timer and not queue_timer.done():
+            elapsed = (asyncio.get_event_loop().time() - queue_start_time)
+            remaining_mins = max(0, (15*60 - elapsed) // 60)
+            remaining_secs = max(0, (15*60 - elapsed) % 60)
+            embed.add_field(name="Time Remaining", 
+                           value=f"{int(remaining_mins)}m {int(remaining_secs)}s until queue reset", 
+                           inline=False)
+    
+    return embed
+
+async def reset_queue_timer(ctx):
+    """Reset the queue after 15 minutes."""
+    global player_pool, queue_timer
+    
+    try:
+        await asyncio.sleep(15 * 60) 
+        if player_pool:
+            await ctx.send("⏰ Queue has been reset due to inactivity (15 minutes timer expired).")
+            player_pool = []
+            await ctx.send(embed=await display_queue(ctx))
+    except asyncio.CancelledError:
+        pass 
+    finally:
+        queue_timer = None
+
 class Tournament:
     def __init__(self, name, teams, commentators=None, staff=None):
         self.name = name
-        self.teams = teams  # List of teams (each team is a dict with 'name' and 'players')
-        self.matches = []   # List of matches in the brackets
+        self.teams = teams  
+        self.matches = []   
         self.commentators = commentators if commentators else []
         self.staff = staff if staff else []
         self.create_brackets()
@@ -69,12 +105,9 @@ class Tournament:
         team_scores.sort(key=lambda x: x[1])
         num_teams = len(self.teams)
         self.matches = []
-        # Calculate number of rounds needed
         total_rounds = math.ceil(math.log2(num_teams))
-        # Pad teams to make the number a power of 2
         bracket_size = 2 ** total_rounds
         byes = bracket_size - num_teams
-        # Assign byes to top teams
         match_num = 1
         for idx in range(0, num_teams, 2):
             team1_idx = team_scores[idx][0]
@@ -98,9 +131,7 @@ class Tournament:
                 match['winner'] = winning_team_idx
                 break
         else:
-            # Match not found
             return False
-        # Proceed to next round if all matches in the current round are completed
         if all(m['winner'] is not None for m in self.matches if m['round'] == self.get_current_round()):
             self.advance_to_next_round()
         return True
@@ -220,7 +251,7 @@ class TeamConfirmationView(View):
     """A view for confirming or regenerating teams."""
 
     def __init__(self, teams, original_players):
-        super().__init__(timeout=60)  # Timeout after 60 seconds
+        super().__init__(timeout=60)  
         self.teams = teams
         self.original_players = original_players
 
@@ -270,7 +301,6 @@ def create_balanced_teams(players):
     best_team1 = None
     best_team2 = None
 
-    # Generate all possible combinations for team1
     for team1_indices in combinations(range(10), 5):
         team1 = [players[i] for i in team1_indices]
         team2 = [players[i] for i in range(10) if i not in team1_indices]
@@ -313,7 +343,6 @@ def create_balanced_tournament_teams(players):
         teams.append({'name': available_team_names.pop(), 'players': []})
         team_points.append(0)
     for player in players_sorted:
-        # Assign to the team with the lowest total points
         min_team_idx = team_points.index(min(team_points))
         if len(teams[min_team_idx]['players']) < team_size:
             teams[min_team_idx]['players'].append(player)
@@ -329,7 +358,6 @@ async def help_command(ctx):
     """Displays the helpme message with all available commands."""
     embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
 
-    # First half of commands
     commands_part1 = (
         "1. `!lf team [player1] [rank1] [player2] [rank2] ...`\n"
         "   - Creates balanced 5v5 teams named 'Team 1' and 'Team 2'\n"
@@ -338,40 +366,42 @@ async def help_command(ctx):
         "   - Shows all tier point values\n\n"
         "3. `!lf join [name] [rank]`\n"
         "   - Join the player queue for a quick match\n\n"
-        "4. `!lf tournament create [tournament_name] [player1] [rank1] ... [commentator1] [commentator2] [staff1] [staff2]`\n"
+        "4. `!lf queue`\n"
+        "   - Shows the current queue status\n\n"
+        "5. `!lf queueclear`\n"
+        "   - Clears the current queue and cancels the timer\n\n"
+        "6. `!lf tournament create [tournament_name] [player1] [rank1] ... [commentator1] [commentator2] [staff1] [staff2]`\n"
         "   - Create teams for a tournament with multiple players, optionally adding up to 2 commentators and staff\n\n"
-        "5. `!lf tournament add_commentator [tournament_name] [commentator_name]`\n"
+        "7. `!lf tournament add_commentator [tournament_name] [commentator_name]`\n"
         "   - Add a commentator to an existing tournament (max 2)\n\n"
-        "6. `!lf tournament remove_commentator [tournament_name] [commentator_name]`\n"
-        "   - Remove a commentator from an existing tournament\n\n"
-        "7. `!lf tournament add_staff [tournament_name] [staff_name]`\n"
-        "   - Add a staff member to an existing tournament\n\n"
     )
 
-    # Second half of commands
     commands_part2 = (
-        "8. `!lf tournament remove_staff [tournament_name] [staff_name]`\n"
+        "8. `!lf tournament remove_commentator [tournament_name] [commentator_name]`\n"
+        "   - Remove a commentator from an existing tournament\n\n"
+        "9. `!lf tournament add_staff [tournament_name] [staff_name]`\n"
+        "   - Add a staff member to an existing tournament\n\n"
+        "10. `!lf tournament remove_staff [tournament_name] [staff_name]`\n"
         "   - Remove a staff member from an existing tournament\n\n"
-        "9. `!lf tournament report [tournament_name] [match_number] [winning_team_number]`\n"
+        "11. `!lf tournament report [tournament_name] [match_number] [winning_team_number]`\n"
         "   - Report match results and update brackets\n\n"
-        "10. `!lf tournament brackets [tournament_name]`\n"
+        "12. `!lf tournament brackets [tournament_name]`\n"
         "    - Display the current tournament brackets\n\n"
-        "11. `!lf tournament teams [tournament_name]`\n"
+        "13. `!lf tournament teams [tournament_name]`\n"
         "    - Display the teams in the tournament\n\n"
-        "12. `!lf tournament update_member [tournament_name] [team_number] [old_member_name] [new_member_name] [new_member_rank]`\n"
+        "14. `!lf tournament update_member [tournament_name] [team_number] [old_member_name] [new_member_name] [new_member_rank]`\n"
         "    - Update a member in a tournament team\n\n"
-        "13. `!lf tournament update_name [tournament_name] [team_number] [new_team_name]`\n"
+        "15. `!lf tournament update_name [tournament_name] [team_number] [new_team_name]`\n"
         "    - Update the name of a team in the tournament\n\n"
-        "14. `!lf clear [option]`\n"
+        "16. `!lf clear [option]`\n"
         "    - Clear specific data. Options: players, teams, tournaments, matches, all\n\n"
-        "15. `!lf helpme`\n"
+        "17. `!lf helpme`\n"
         "    - Shows this help message\n"
     )
 
     embed.add_field(name="Available Commands (1/2)", value=commands_part1, inline=False)
     embed.add_field(name="Available Commands (2/2)", value=commands_part2, inline=False)
 
-    # Ranks are short enough to fit in one field
     ranks_info = (
         "Iron: I - 1.0 Points\n"
         "Iron-Bronze: IB - 2.0 Points\n"
@@ -408,23 +438,70 @@ async def tiers_command(ctx):
 @bot.command(name='join')
 async def join_queue(ctx, name: str, rank: str):
     """Allows a player to join the matchmaking queue."""
+    global player_pool, queue_timer, queue_start_time
+    
     rank = rank.upper()
     if rank not in TIER_POINTS:
         await ctx.send(f"Invalid rank '{rank}'. Use `!lf help` to see valid ranks.")
         return
 
     player_info = (name, rank, TIER_POINTS[rank])
-    if player_info in player_pool:
-        await ctx.send(f"{name} is already in the queue.")
-        return
+    for existing_player in player_pool:
+        if existing_player[0].lower() == name.lower():
+            await ctx.send(f"{name} is already in the queue.")
+            return
 
     player_pool.append(player_info)
-    await ctx.send(f"{name} joined the queue as {rank}.")
+    
+    if len(player_pool) == 1:
+        queue_start_time = asyncio.get_event_loop().time()
+        if queue_timer:
+            queue_timer.cancel()
+        queue_timer = asyncio.create_task(reset_queue_timer(ctx))
+    
+    embed = await display_queue(ctx)
+    await ctx.send(f"✅ {name} joined the queue as {rank}.", embed=embed)
 
     if len(player_pool) >= 10:
+        if queue_timer and not queue_timer.done():
+            queue_timer.cancel()
+            queue_timer = None
+        
         embed, view = create_balanced_teams(player_pool[:10])
-        await ctx.send(embed=embed, view=view)
+        await ctx.send("🎮 Queue is full! Creating balanced teams:", embed=embed, view=view)
         del player_pool[:10]
+        
+        if player_pool:
+            queue_start_time = asyncio.get_event_loop().time()
+            queue_timer = asyncio.create_task(reset_queue_timer(ctx))
+            embed = await display_queue(ctx)
+            await ctx.send("Players remaining in queue:", embed=embed)
+
+@bot.command(name='queueclear')
+async def clear_queue(ctx):
+    """Clears the current queue and cancels the timer."""
+    global player_pool, queue_timer
+    
+    if not player_pool:
+        await ctx.send("Queue is already empty.")
+        return
+    
+    player_count = len(player_pool)
+    player_pool = []
+    
+    if queue_timer and not queue_timer.done():
+        queue_timer.cancel()
+        queue_timer = None
+    
+    await ctx.send(f"🧹 Queue cleared. Removed {player_count} player(s).")
+    embed = await display_queue(ctx)
+    await ctx.send(embed=embed)
+
+@bot.command(name='queue')
+async def show_queue(ctx):
+    """Shows the current queue."""
+    embed = await display_queue(ctx)
+    await ctx.send(embed=embed)
 
 @bot.command(name='team')
 async def team_balance(ctx, *, input_text=None):
@@ -466,12 +543,11 @@ async def tournament_create(ctx, tournament_name: str, *args):
     Format: !lf tournament create [tournament_name] [player1] [rank1] ... [commentator1] [commentator2] [staff1] [staff2]
     Commentators and staff are optional.
     """
-    required_player_args = 10 * 2  # 10 players, each with name and rank
+    required_player_args = 10 * 2  
     if len(args) < required_player_args:
         await ctx.send("Please provide a tournament name and at least 10 players with their ranks.\nUse `!lf help` for more information.")
         return
 
-    # Extract players
     players = []
     i = 0
     while i +1 < len(args):
@@ -489,7 +565,6 @@ async def tournament_create(ctx, tournament_name: str, *args):
         await ctx.send("Not enough players to form a single team.")
         return
 
-    # Remaining args could be commentators and staff
     commentators = []
     staff = []
     while i < len(args):
@@ -512,13 +587,10 @@ async def tournament_create(ctx, tournament_name: str, *args):
             await ctx.send(f"Unrecognized role '{args[i]}'. Use `!lf help` for more information.")
             return
 
-    # Create teams
     teams = create_balanced_tournament_teams(players)
-    # Create Tournament instance
     tournament_obj = Tournament(tournament_name, teams, commentators, staff)
     tournaments[tournament_name] = tournament_obj
 
-    # Display teams and their members with team points
     embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
     for idx, team in enumerate(teams):
         team_name = team['name']
@@ -531,7 +603,6 @@ async def tournament_create(ctx, tournament_name: str, *args):
         embed.add_field(name="Staff", value=", ".join(staff), inline=False)
     await ctx.send(embed=embed)
 
-    # Also display the brackets
     embed = tournament_obj.display_brackets()
     await ctx.send(embed=embed)
 
@@ -548,7 +619,6 @@ async def tournament_add_commentator(ctx, tournament_name: str, commentator_name
     success = tournament_obj.add_commentator(commentator_name)
     if success:
         await ctx.send(f"Commentator '{commentator_name}' has been added to tournament '{tournament_name}'.")
-        # Update tournament embed
         embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
         for idx, team in enumerate(tournament_obj.teams):
             team_name = team['name']
@@ -576,7 +646,6 @@ async def tournament_remove_commentator(ctx, tournament_name: str, commentator_n
     success = tournament_obj.remove_commentator(commentator_name)
     if success:
         await ctx.send(f"Commentator '{commentator_name}' has been removed from tournament '{tournament_name}'.")
-        # Update tournament embed
         embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
         for idx, team in enumerate(tournament_obj.teams):
             team_name = team['name']
@@ -604,7 +673,6 @@ async def tournament_add_staff(ctx, tournament_name: str, staff_name: str):
     success = tournament_obj.add_staff(staff_name)
     if success:
         await ctx.send(f"Staff member '{staff_name}' has been added to tournament '{tournament_name}'.")
-        # Update tournament embed
         embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
         for idx, team in enumerate(tournament_obj.teams):
             team_name = team['name']
@@ -632,7 +700,6 @@ async def tournament_remove_staff(ctx, tournament_name: str, staff_name: str):
     success = tournament_obj.remove_staff(staff_name)
     if success:
         await ctx.send(f"Staff member '{staff_name}' has been removed from tournament '{tournament_name}'.")
-        # Update tournament embed
         embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
         for idx, team in enumerate(tournament_obj.teams):
             team_name = team['name']
@@ -664,7 +731,6 @@ async def tournament_report(ctx, tournament_name: str, match_number: int, winnin
     success = tournament_obj.report_match_result(match_number, winning_team_idx)
     if success:
         await ctx.send(f"Updated match {match_number} with winner Team {winning_team_number}: {tournament_obj.teams[winning_team_idx]['name']}.")
-        # Display updated brackets
         embed = tournament_obj.display_brackets()
         await ctx.send(embed=embed)
     else:
@@ -722,7 +788,6 @@ async def tournament_update_member(ctx, tournament_name: str, team_number: int, 
     success = tournament_obj.update_member(team_number, old_member_name, new_member_name, new_member_rank)
     if success:
         await ctx.send(f"Updated Team {team_number}: Replaced '{old_member_name}' with '{new_member_name}' ({new_member_rank}).")
-        # Display updated teams
         embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
         for idx, team in enumerate(tournament_obj.teams):
             team_name = team['name']
@@ -746,7 +811,6 @@ async def tournament_update_name(ctx, tournament_name: str, team_number: int, ne
     success = tournament_obj.update_team_name(team_number, new_team_name)
     if success:
         await ctx.send(f"Updated Team {team_number} name to '{new_team_name}'.")
-        # Display updated teams
         embed = discord.Embed(title=f"Tournament Teams: {tournament_name}", color=0x00ff00)
         for idx, team in enumerate(tournament_obj.teams):
             team_name = team['name']
@@ -765,8 +829,11 @@ async def clear(ctx):
 @clear.command(name='players')
 async def clear_players(ctx):
     """Clears the player queue."""
-    global player_pool
+    global player_pool, queue_timer
     player_pool = []
+    if queue_timer and not queue_timer.done():
+        queue_timer.cancel()
+        queue_timer = None
     await ctx.send("Player queue has been cleared.")
 
 @clear.command(name='teams')
@@ -795,12 +862,12 @@ async def clear_matches(ctx):
 @clear.command(name='all')
 async def clear_all(ctx):
     """Clears all data including players, teams, tournaments, and matches."""
-    global player_pool, tournaments
+    global player_pool, tournaments, queue_timer
     player_pool = []
     tournaments = {}
+    if queue_timer and not queue_timer.done():
+        queue_timer.cancel()
+        queue_timer = None
     await ctx.send("All data has been cleared.")
 
-# Run the bot
 bot.run(DISCORD_TOKEN)
-
-
