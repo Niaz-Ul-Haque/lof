@@ -241,7 +241,7 @@ class QueueView(View):
             lobby_view = QueueView(self.ctx)
             await interaction.message.edit(embed=lobby_embed, view=lobby_view)
     
-    @discord.ui.button(label="Leave Queue", style=discord.ButtonStyle.red, emoji="( 👁️ ͜ʖ 👁️ )")
+    @discord.ui.button(label="Leave Queue", style=discord.ButtonStyle.red, emoji="😩")
     async def leave_queue_button(self, interaction: discord.Interaction, button: Button):
         """Handles leave queue button click."""
         global player_pool
