@@ -71,28 +71,87 @@ TEAM_NAMES = [
     "Bumbling Buccaneers", "Sneaky Sasquatches", "Crazy Cacti", "Drunken Dragons", "Grouchy Gnomes",
 ]
 
+# Color constants for better UI
+BLUE_COLOR = 0x3498DB
+RED_COLOR = 0xE74C3C
+GREEN_COLOR = 0x2ECC71
+PURPLE_COLOR = 0x9B59B6
+ORANGE_COLOR = 0xE67E22
+TEAL_COLOR = 0x1ABC9C
+
+# Website to plug
+WEBSITE_URL = "https://www.leagueofflex.com"
+
 async def display_queue(ctx):
     """Displays the current queue as an embed and includes a join button."""
-    embed = discord.Embed(title="League of Legends Match Queue", color=0x00ff00)
+    embed = discord.Embed(title="🎮 League of Legends Match Queue", color=BLUE_COLOR)
     
     if not player_pool:
         embed.description = "Queue is empty. Use `!lf join [name] [rank]` to join!"
     else:
-        players_list = "\n".join([f"{idx+1}. {player[0]} ({player[1]} - {player[2]} pts)" 
-                                 for idx, player in enumerate(player_pool)])
-        embed.description = players_list
-        embed.add_field(name="Status", value=f"{len(player_pool)}/10 players in queue", inline=False)
+        players_info = []
+        for idx, player in enumerate(player_pool):
+            tier_emoji = get_tier_emoji(player[1])
+            players_info.append(f"`{idx+1}.` {tier_emoji} **{player[0]}** ({player[1]} - {player[2]} pts)")
+        
+        embed.description = "\n".join(players_info)
+        
+        progress = min(10, len(player_pool))
+        progress_bar = create_progress_bar(progress, 10)
+        
+        embed.add_field(
+            name="Queue Status", 
+            value=f"{progress_bar}\n**{len(player_pool)}/10** players in queue", 
+            inline=False
+        )
         
         if queue_timer and not queue_timer.done():
             elapsed = (asyncio.get_event_loop().time() - queue_start_time)  # in seconds
             remaining_mins = max(0, (15*60 - elapsed) // 60)
             remaining_secs = max(0, (15*60 - elapsed) % 60)
-            embed.add_field(name="Time Remaining", 
-                           value=f"{int(remaining_mins)}m {int(remaining_secs)}s until queue reset", 
-                           inline=False)
+            embed.add_field(
+                name="⏰ Time Remaining", 
+                value=f"**{int(remaining_mins)}m {int(remaining_secs)}s** until queue reset", 
+                inline=False
+            )
+    
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
     
     view = QueueView(ctx)
     return embed, view
+
+def create_progress_bar(current, maximum, length=10):
+    """Creates a visual progress bar."""
+    filled = round(current / maximum * length)
+    empty = length - filled
+    
+    filled_char = "🟦"
+    empty_char = "⬜"
+    
+    return filled_char * filled + empty_char * empty
+
+def get_tier_emoji(tier):
+    """Returns an emoji based on the player's tier."""
+    tier_emojis = {
+        "I": "🔘",    # Iron
+        "IB": "🔘",   # Iron-Bronze
+        "B": "🟤",    # Bronze
+        "BS": "🟤",   # Bronze-Silver
+        "S": "⚪",    # Silver
+        "SG": "⚪",   # Silver-Gold
+        "G": "🟡",    # Gold
+        "GP": "🟡",   # Gold-Platinum
+        "P": "🔵",    # Platinum
+        "PE": "🔵",   # Platinum-Emerald
+        "E": "🟢",    # Emerald
+        "ED": "🟢",   # Emerald-Diamond
+        "D": "🔷",    # Diamond
+        "DM": "🔷",   # Diamond-Master
+        "M": "🟣",    # Master
+        "GM": "🟣",   # Grandmaster
+        "C": "🔴"     # Challenger
+    }
+    return tier_emojis.get(tier, "❓")
 
 async def reset_queue_timer(ctx):
     """Reset the queue after 15 minutes."""
@@ -127,7 +186,7 @@ class QueueView(View):
         
         for existing_player in player_pool:
             if existing_player[0].lower() == name.lower():
-                await interaction.response.send_message(f"{name} is already in the queue. To update your rank, use `!lf leave` first, then rejoin with the correct rank.", ephemeral=True)
+                await interaction.response.send_message(f"**{name}** is already in the queue. To update your rank, use `!lf leave` first, then rejoin with the correct rank.", ephemeral=True)
                 return
         
         found_rank = None
@@ -154,34 +213,35 @@ class QueueView(View):
             queue_timer = asyncio.create_task(reset_queue_timer(self.ctx))
         
         embed, view = await display_queue(self.ctx)
-        await interaction.response.send_message(f"✅ {name} joined the queue as {found_rank}.", embed=embed, view=view)
+        await interaction.response.send_message(f"✅ **{name}** joined the queue as **{found_rank}**.", embed=embed, view=view)
         
         if len(player_pool) >= 10:
             if queue_timer and not queue_timer.done():
                 queue_timer.cancel()
                 queue_timer = None
             
-            teams_embed, teams_view = create_balanced_teams(player_pool[:10])
-            await self.ctx.send("🎮 Queue is full! Creating balanced teams:", embed=teams_embed, view=teams_view)
+            teams_embed = create_balanced_teams(player_pool[:10])
+            await self.ctx.send("🎮 **Queue is full! Creating balanced teams:**", embed=teams_embed)
             del player_pool[:10]
             
             if player_pool:
                 queue_start_time = asyncio.get_event_loop().time()
                 queue_timer = asyncio.create_task(reset_queue_timer(self.ctx))
                 remaining_embed, remaining_view = await display_queue(self.ctx)
-                await self.ctx.send("Players remaining in queue:", embed=remaining_embed, view=remaining_view)
+                await self.ctx.send("**Players remaining in queue:**", embed=remaining_embed, view=remaining_view)
             
             lobby_embed = discord.Embed(
-                title="Custom Game Lobby", 
+                title="🎮 Custom Game Lobby", 
                 description="Click the button below to join the queue!",
-                color=0x00ff00
+                color=BLUE_COLOR
             )
             lobby_embed.add_field(name="Queue Status", value=f"{len(player_pool)}/10 players")
+            lobby_embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
             
             lobby_view = QueueView(self.ctx)
             await interaction.message.edit(embed=lobby_embed, view=lobby_view)
     
-    @discord.ui.button(label="Leave Queue", style=discord.ButtonStyle.red, emoji="❌")
+    @discord.ui.button(label="Leave Queue", style=discord.ButtonStyle.red, emoji="( 👁️ ͜ʖ 👁️ )")
     async def leave_queue_button(self, interaction: discord.Interaction, button: Button):
         """Handles leave queue button click."""
         global player_pool
@@ -198,17 +258,17 @@ class QueueView(View):
         
         if player_found:
             embed, view = await display_queue(self.ctx)
-            await interaction.response.send_message(f"❌ {name} has left the queue.", embed=embed, view=view)
+            await interaction.response.send_message(f"❌ **{name}** has left the queue.", embed=embed, view=view)
         else:
-            await interaction.response.send_message(f"You're not currently in the queue, {name}.", ephemeral=True)
+            await interaction.response.send_message(f"You're not currently in the queue, **{name}**.", ephemeral=True)
 
 @bot.command(name='lobby')
 async def start_lobby(ctx):
     """Start a custom game lobby with a join button."""
     embed = discord.Embed(
-        title="Custom Game Lobby", 
+        title="🎮 Custom Game Lobby", 
         description="Click the button below to join the queue!",
-        color=0x00ff00
+        color=BLUE_COLOR
     )
     
     embed.add_field(name="Queue Status", value=f"{len(player_pool)}/10 players")
@@ -218,11 +278,12 @@ async def start_lobby(ctx):
         remaining_mins = max(0, (15*60 - elapsed) // 60)
         remaining_secs = max(0, (15*60 - elapsed) % 60)
         embed.add_field(
-            name="Time Remaining", 
-            value=f"{int(remaining_mins)}m {int(remaining_secs)}s until queue reset",
+            name="⏰ Time Remaining", 
+            value=f"**{int(remaining_mins)}m {int(remaining_secs)}s** until queue reset",
             inline=False
         )
     
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
     view = QueueView(ctx)
     
     lobby_message = await ctx.send(embed=embed, view=view)
@@ -235,22 +296,6 @@ async def start_lobby(ctx):
     if player_pool:
         queue_embed, queue_view = await display_queue(ctx)
         await ctx.send("Current queue:", embed=queue_embed, view=queue_view)
-
-
-class TeamConfirmationView(View):
-    """A view for confirming or regenerating teams."""
-
-    def __init__(self, teams, original_players):
-        super().__init__(timeout=60) 
-        self.teams = teams
-        self.original_players = original_players
-
-    @discord.ui.button(label="Regenerate Teams", style=discord.ButtonStyle.red)
-    async def regenerate(self, interaction: discord.Interaction, button: Button):
-        """Handles team regeneration."""
-        embed, view = create_balanced_teams(self.original_players)
-        await interaction.response.edit_message(embed=embed, view=view)
-        self.stop()
 
 def format_tier_points():
     """Format tier points in a more compact way."""
@@ -304,34 +349,50 @@ def create_balanced_teams(players):
             best_team1 = team1
             best_team2 = team2
 
-    team1_name = "Team 1"
-    team2_name = "Team 2"
+    # Generate random names for teams
+    random_index1 = random.randint(0, len(TEAM_NAMES) - 1)
+    random_index2 = (random_index1 + 1) % len(TEAM_NAMES)
+    
+    team1_name = TEAM_NAMES[random_index1]
+    team2_name = TEAM_NAMES[random_index2]
 
-    embed = discord.Embed(title="Balanced Teams (5v5)", color=0x00ff00)
+    embed = discord.Embed(title="🏆 Balanced Teams (5v5)", color=PURPLE_COLOR)
+    
+    team1_score = sum(player[2] for player in best_team1)
+    team2_score = sum(player[2] for player in best_team2)
 
-    team1_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team1])
-    team2_info = "\n".join([f"{player[0]} ({player[1]} - {player[2]} pts)" for player in best_team2])
+    # Format team members with emojis
+    team1_info = []
+    for player in best_team1:
+        tier_emoji = get_tier_emoji(player[1])
+        team1_info.append(f"{tier_emoji} **{player[0]}** ({player[1]} - {player[2]} pts)")
+    
+    team2_info = []
+    for player in best_team2:
+        tier_emoji = get_tier_emoji(player[1])
+        team2_info.append(f"{tier_emoji} **{player[0]}** ({player[1]} - {player[2]} pts)")
 
-    embed.add_field(name=f"{team1_name}", value=team1_info, inline=True)
-    embed.add_field(name=f"{team2_name}", value=team2_info, inline=True)
-    embed.add_field(name="Balance Info", value=f"Point Difference: {best_diff:.1f} points", inline=False)
+    embed.add_field(name=f"🔵 {team1_name} ({team1_score:.1f} pts)", value="\n".join(team1_info), inline=True)
+    embed.add_field(name=f"🔴 {team2_name} ({team2_score:.1f} pts)", value="\n".join(team2_info), inline=True)
+    embed.add_field(name="⚖️ Balance Info", value=f"Point Difference: **{best_diff:.1f}** points", inline=False)
 
-    view = TeamConfirmationView(teams=[team1_name, team2_name], original_players=players)
-    embed.set_footer(text="The teams should be balanced as much as possible. If not, please regenerate the teams using the button below.")
-    return embed, view
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+    return embed
 
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
+    activity = discord.Game(name="League of Flex | !lf information")
+    await bot.change_presence(activity=activity)
 
 @bot.command(name='information')
 async def help_command(ctx):
     """Displays the information message with all available commands."""
-    embed = discord.Embed(title="League of Legends Team Balancer Help", color=0x00ff00)
+    embed = discord.Embed(title="🎮 League of Legends Team Balancer Help", color=TEAL_COLOR)
 
     commands_part1 = (
         "1. `!lf team [player1] [rank1] [player2] [rank2] ...`\n"
-        "   - Creates balanced 5v5 teams named 'Team 1' and 'Team 2'\n"
+        "   - Creates balanced 5v5 teams with randomized team names\n"
         "   - Requires exactly 10 players with their ranks\n\n"
         "2. `!lf tiers`\n"
         "   - Shows all tier point values\n\n"
@@ -350,40 +411,44 @@ async def help_command(ctx):
         "    - Shows this help message\n"
     )
 
+    embed.add_field(name="Available Commands", value=commands_part1, inline=False)
 
-    embed.add_field(name="Available Commands (1/2)", value=commands_part1, inline=False)
-
-    ranks_info = (
-        "Iron: I - 1.0 Points\n"
-        "Iron-Bronze: IB - 2.0 Points\n"
-        "Bronze: B - 3.0 Points\n"
-        "Bronze-Silver: BS - 4.0 Points\n"
-        "Silver: S - 5.0 Points\n"
-        "Silver-Gold: SG - 6.5 Points\n"
-        "Gold: G - 8.0 Points\n"
-        "Gold-Platinum: GP - 9.5 Points\n"
-        "Platinum: P - 11.0 Points\n"
-        "Platinum-Emerald: PE - 13.0 Points\n"
-        "Emerald: E - 15.0 Points\n"
-        "Emerald-Diamond: ED - 17.0 Points\n"
-        "Diamond: D - 19.0 Points\n"
-        "Diamond-Master: DM - 21.5 Points\n"
-        "Master: M - 24.0 Points\n"
-        "Grandmaster: GM - 27.0 Points\n"
-        "Challenger: C - 30.0 Points"
-    )
+    # Create a visual representation of the rank tiers with emojis
+    ranks_info = ""
+    for tier_name, ranks in {
+        "Iron": "I", "Iron-Bronze": "IB", "Bronze": "B", "Bronze-Silver": "BS",
+        "Silver": "S", "Silver-Gold": "SG", "Gold": "G", "Gold-Platinum": "GP",
+        "Platinum": "P", "Platinum-Emerald": "PE", "Emerald": "E", "Emerald-Diamond": "ED",
+        "Diamond": "D", "Diamond-Master": "DM", "Master": "M", "Grandmaster": "GM", "Challenger": "C"
+    }.items():
+        emoji = get_tier_emoji(ranks)
+        ranks_info += f"{emoji} **{tier_name}** ({ranks}): {TIER_POINTS[ranks]} Points\n"
+    
     embed.add_field(name="Valid Ranks", value=ranks_info, inline=False)
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
 
     await ctx.send(embed=embed)
 
 @bot.command(name='tiers')
 async def tiers_command(ctx):
     """Displays the tier points."""
-    embed = discord.Embed(title="League of Legends Rank Point Values", color=0x00ff00)
-    for tier_str in format_tier_points():
-        if ': ' in tier_str:
-            name, values = tier_str.split(': ', 1)
-            embed.add_field(name=name, value=values, inline=False)
+    embed = discord.Embed(title="⚔️ League of Legends Rank Point Values", color=ORANGE_COLOR)
+    
+    # Create a visual representation of the tier points with emojis
+    for tier_name, ranks in {
+        "Iron": "I", "Iron-Bronze": "IB", "Bronze": "B", "Bronze-Silver": "BS",
+        "Silver": "S", "Silver-Gold": "SG", "Gold": "G", "Gold-Platinum": "GP",
+        "Platinum": "P", "Platinum-Emerald": "PE", "Emerald": "E", "Emerald-Diamond": "ED",
+        "Diamond": "D", "Diamond-Master": "DM", "Master": "M", "Grandmaster": "GM", "Challenger": "C"
+    }.items():
+        emoji = get_tier_emoji(ranks)
+        embed.add_field(
+            name=f"{emoji} {tier_name} ({ranks})", 
+            value=f"**{TIER_POINTS[ranks]}** Points", 
+            inline=True
+        )
+    
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
     await ctx.send(embed=embed)
 
 @bot.command(name='join')
@@ -408,7 +473,7 @@ async def join_queue(ctx, name=None, rank=None):
         if rank is not None:
             rank = rank.upper()
             if rank not in TIER_POINTS:
-                await ctx.send(f"Invalid rank '{rank}'. Use `!lf help` to see valid ranks.")
+                await ctx.send(f"❌ Invalid rank '**{rank}**'. Use `!lf information` to see valid ranks.")
                 return
             
             del player_pool[player_idx]
@@ -416,16 +481,16 @@ async def join_queue(ctx, name=None, rank=None):
             player_pool.append(player_info)
             
             embed, view = await display_queue(ctx)
-            await ctx.send(f"✅ Updated {name}'s rank to {rank}.", embed=embed, view=view)
+            await ctx.send(f"✅ Updated **{name}**'s rank to **{rank}**.", embed=embed, view=view)
             return
         else:
-            await ctx.send(f"{name} is already in the queue. To update your rank, use `!lf leave` first, then rejoin with the correct rank.")
+            await ctx.send(f"**{name}** is already in the queue. To update your rank, use `!lf leave` first, then rejoin with the correct rank.")
             return
     
     if rank is not None:
         rank = rank.upper()
         if rank not in TIER_POINTS:
-            await ctx.send(f"Invalid rank '{rank}'. Use `!lf help` to see valid ranks.")
+            await ctx.send(f"❌ Invalid rank '**{rank}**'. Use `!lf information` to see valid ranks.")
             return
     else:
         found_rank = None
@@ -451,22 +516,22 @@ async def join_queue(ctx, name=None, rank=None):
         queue_timer = asyncio.create_task(reset_queue_timer(ctx))
     
     embed, view = await display_queue(ctx)
-    await ctx.send(f"✅ {name} joined the queue as {rank}.", embed=embed, view=view)
+    await ctx.send(f"✅ **{name}** joined the queue as **{rank}**.", embed=embed, view=view)
 
     if len(player_pool) >= 10:
         if queue_timer and not queue_timer.done():
             queue_timer.cancel()
             queue_timer = None
         
-        teams_embed, teams_view = create_balanced_teams(player_pool[:10])
-        await ctx.send("🎮 Queue is full! Creating balanced teams:", embed=teams_embed, view=teams_view)
+        teams_embed = create_balanced_teams(player_pool[:10])
+        await ctx.send("🎮 **Queue is full! Creating balanced teams:**", embed=teams_embed)
         del player_pool[:10]
         
         if player_pool:
             queue_start_time = asyncio.get_event_loop().time()
             queue_timer = asyncio.create_task(reset_queue_timer(ctx))
             remaining_embed, remaining_view = await display_queue(ctx)
-            await ctx.send("Players remaining in queue:", embed=remaining_embed, view=remaining_view)
+            await ctx.send("**Players remaining in queue:**", embed=remaining_embed, view=remaining_view)
 
 @bot.command(name='leave')
 async def leave_queue(ctx, name=None):
@@ -488,9 +553,9 @@ async def leave_queue(ctx, name=None):
     
     if player_found:
         embed, view = await display_queue(ctx)
-        await ctx.send(f"❌ {name} has left the queue.", embed=embed, view=view)
+        await ctx.send(f"❌ **{name}** has left the queue.", embed=embed, view=view)
     else:
-        await ctx.send(f"{name} is not currently in the queue.")
+        await ctx.send(f"**{name}** is not currently in the queue.")
 
 @bot.command(name='queueclear')
 async def clear_queue(ctx):
@@ -508,7 +573,7 @@ async def clear_queue(ctx):
         queue_timer.cancel()
         queue_timer = None
     
-    await ctx.send(f"🧹 Queue cleared. Removed {player_count} player(s).")
+    await ctx.send(f"🧹 Queue cleared. Removed **{player_count}** player(s).")
     embed, view = await display_queue(ctx)
     await ctx.send(embed=embed, view=view)
 
@@ -522,12 +587,12 @@ async def show_queue(ctx):
 async def team_balance(ctx, *, input_text=None):
     """Creates balanced teams based on provided players and ranks."""
     if not input_text:
-        await ctx.send("Please use `!lf help` for command information.")
+        await ctx.send("Please use `!lf information` for command information.")
         return
 
     args = input_text.split()
     if len(args) < 20:
-        await ctx.send("For team balancing, provide 10 players with their ranks.\nUse `!lf help` for more information.")
+        await ctx.send("For team balancing, provide 10 players with their ranks.\nUse `!lf information` for more information.")
         return
 
     try:
@@ -536,16 +601,15 @@ async def team_balance(ctx, *, input_text=None):
             player_name = args[i]
             player_rank = args[i+1].upper()
             if player_rank not in TIER_POINTS:
-                await ctx.send(f"Invalid rank '{player_rank}' for player '{player_name}'. Use `!lf help` to see valid ranks.")
+                await ctx.send(f"❌ Invalid rank '**{player_rank}**' for player '**{player_name}**'. Use `!lf information` to see valid ranks.")
                 return
             players.append((player_name, player_rank, TIER_POINTS[player_rank]))
 
-        embed, view = create_balanced_teams(players)
-        await ctx.send(embed=embed, view=view)
+        teams_embed = create_balanced_teams(players)
+        await ctx.send(embed=teams_embed)
     except Exception as e:
-        await ctx.send("Error creating teams. Use `!lf help` for the correct format.")
+        await ctx.send("❌ Error creating teams. Use `!lf information` for the correct format.")
         print(f"Error: {str(e)}") 
-
 
 @bot.group(name='clear', invoke_without_command=True)
 async def clear(ctx):
@@ -560,7 +624,7 @@ async def clear_players(ctx):
     if queue_timer and not queue_timer.done():
         queue_timer.cancel()
         queue_timer = None
-    await ctx.send("Player queue has been cleared.")
+    await ctx.send("🧹 Player queue has been cleared.")
 
 @clear.command(name='teams')
 async def clear_teams(ctx):
@@ -568,7 +632,7 @@ async def clear_teams(ctx):
     global tournaments
     for tournament in tournaments.values():
         tournament.teams = []
-    await ctx.send("All tournament teams have been cleared.")
+    await ctx.send("🧹 All tournament teams have been cleared.")
 
 @clear.command(name='all')
 async def clear_all(ctx):
@@ -579,6 +643,6 @@ async def clear_all(ctx):
     if queue_timer and not queue_timer.done():
         queue_timer.cancel()
         queue_timer = None
-    await ctx.send("All data has been cleared.")
+    await ctx.send("🧹 All data has been cleared.")
 
 bot.run(DISCORD_TOKEN)
