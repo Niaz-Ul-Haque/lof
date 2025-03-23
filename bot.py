@@ -580,8 +580,46 @@ async def clear_queue(ctx):
 @bot.command(name='queue')
 async def show_queue(ctx):
     """Shows the current queue and creates one if it doesn't exist."""
-    embed, view = await display_queue(ctx)
-    await ctx.send(embed=embed, view=view)
+    try:
+        embed = discord.Embed(title="🎮 League of Legends Match Queue", color=BLUE_COLOR)
+        
+        if not player_pool:
+            embed.description = "Queue is empty. Use `!lf join [name] [rank]` to join!"
+        else:
+            players_info = []
+            for idx, player in enumerate(player_pool):
+                tier_emoji = get_tier_emoji(player[1])
+                players_info.append(f"`{idx+1}.` {tier_emoji} **{player[0]}** ({player[1]} - {player[2]} pts)")
+            
+            embed.description = "\n".join(players_info)
+            
+            progress = min(10, len(player_pool))
+            progress_bar = create_progress_bar(progress, 10)
+            
+            embed.add_field(
+                name="Queue Status", 
+                value=f"{progress_bar}\n**{len(player_pool)}/10** players in queue", 
+                inline=False
+            )
+            
+            if queue_timer and not queue_timer.done():
+                elapsed = (asyncio.get_event_loop().time() - queue_start_time)  # in seconds
+                remaining_mins = max(0, (15*60 - elapsed) // 60)
+                remaining_secs = max(0, (15*60 - elapsed) % 60)
+                embed.add_field(
+                    name="⏰ Time Remaining", 
+                    value=f"**{int(remaining_mins)}m {int(remaining_secs)}s** until queue reset", 
+                    inline=False
+                )
+        
+        embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+        
+        view = QueueView(ctx)
+        await ctx.send(embed=embed, view=view)
+    except Exception as e:
+        print(f"Error in queue command: {str(e)}")
+        await ctx.send(f"❌ An error occurred with the queue command: {str(e)}")
+
 
 @bot.command(name='team')
 async def team_balance(ctx, *, input_text=None):
