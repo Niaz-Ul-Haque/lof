@@ -579,7 +579,7 @@ async def clear_queue(ctx):
 
 @bot.command(name='queue')
 async def show_queue(ctx):
-    """Shows the current queue."""
+    """Shows the current queue and creates one if it doesn't exist."""
     embed, view = await display_queue(ctx)
     await ctx.send(embed=embed, view=view)
 
@@ -644,5 +644,22 @@ async def clear_all(ctx):
         queue_timer.cancel()
         queue_timer = None
     await ctx.send("🧹 All data has been cleared.")
+
+@bot.event
+async def on_message(message):
+    """Listen for specific phrases and respond with a custom message."""
+    # Don't respond to bot messages to avoid loops
+    if message.author.bot:
+        return
+        
+    content = message.content.upper()
+    customs_phrases = ["WHERE ARE CUSTOMS", "WHERE THE CUSTOMS", "WHERE ARE THE CUSTOMS", "WHERE CUSTOMS"]
+    
+    if any(phrase in content for phrase in customs_phrases):
+        response = "Bro, just type in '!lf queue' to start a custom lobby and invite your friends. Also, please don't write that anymore; I have work to do as well."
+        await message.channel.send(response)
+    
+    # Process commands - this is necessary so that normal commands still work
+    await bot.process_commands(message)
 
 bot.run(DISCORD_TOKEN)
