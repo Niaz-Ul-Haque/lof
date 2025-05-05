@@ -69,6 +69,47 @@ ROLE_TO_RANK = {
     "Challenger": "C"
 }
 
+# Rank abbreviation to full name mapping
+RANK_FULLNAMES = {
+    "I": "Iron",
+    "IB": "Iron-Bronze",
+    "B": "Bronze",
+    "BS": "Bronze-Silver",
+    "S": "Silver",
+    "SG": "Silver-Gold",
+    "G": "Gold",
+    "GP": "Gold-Platinum",
+    "P": "Platinum",
+    "PE": "Platinum-Emerald",
+    "E": "Emerald",
+    "ED": "Emerald-Diamond",
+    "D": "Diamond",
+    "DM": "Diamond-Masters",
+    "M": "Master",
+    "GM": "Grandmaster",
+    "C": "Challenger"
+}
+
+# Pool of trash talk messages for team balancing
+TRASH_TALK_MESSAGES = [
+    "Two teams of League players, double the disappointment.",
+    "Well, well, guess both teams will fight over which one sucks less.",
+    "Both teams look equally terrible. This should be... interesting.",
+    "I've seen better team comps in a Bronze solo queue match.",
+    "May the least-worst team win!",
+    "Two teams walk into a rift... neither one knows what wards are.",
+    "10 players and not a single decent gank between them.",
+    "Looks like we've got two teams of 'I should be a rank higher' players.",
+    "Discord wrapped, League of Legends edition: Two teams that'll blame their jungler.",
+    "These teams are so bad, minions are placing bets against both of them.",
+    "Are these teams here to play League or just provide content for fail compilations?",
+    "Remember, the first team to blame lag loses.",
+    "The only thing getting carried here is the popcorn to watch this disaster.",
+    "Spoilers: both teams will say 'mid diff' by 10 minutes.",
+    "I've seen better macro from a team of potatoes.",
+    "Two teams enter, both somehow manage to lose."
+]
+
 # Tournament constants
 TOURNAMENT_PHASE = {
     "REGISTRATION": "Registration Open",
@@ -119,22 +160,6 @@ def get_tier_emoji(tier):
         "C": "🔴"     # Challenger
     }
     return tier_emojis.get(tier, "❓")
-
-async def reset_queue_timer(ctx):
-    """Reset the queue after 15 minutes."""
-    global player_pool, queue_timer
-    
-    try:
-        await asyncio.sleep(15 * 60) 
-        if player_pool:
-            await ctx.send("⏰ Queue has been reset due to inactivity (15 minutes timer expired).")
-            player_pool = []
-            embed, view = await display_queue(ctx)
-            await ctx.send(embed=embed, view=view)
-    except asyncio.CancelledError:
-        pass 
-    finally:
-        queue_timer = None
 
 
 def format_tier_points():
@@ -624,6 +649,7 @@ async def on_ready():
 
 # ========================= Updated UI Components =========================
 
+
 async def display_queue(ctx):
     """Displays the current queue as an embed and includes a join button."""
     embed = discord.Embed(title="🎮 League of Flex Custom Match Queue", color=BLUE_COLOR)
@@ -638,10 +664,14 @@ async def display_queue(ctx):
             inline=False
         )
     else:
-        # Create a timestamp if not exists
-        current_time = datetime.datetime.now()
+        # Add description with queue status
+        queue_status = f"**{len(player_pool)}/10** players in queue"
+        if len(player_pool) >= 5:
+            queue_status += " • **Almost there!**"
         
-        # Group players by tier for better organization
+        embed.description = f"{queue_status}\n"
+        
+        # Group players by tier for better organization using full rank names
         tier_groups = {}
         for idx, player in enumerate(player_pool):
             tier = player[1]
@@ -650,13 +680,6 @@ async def display_queue(ctx):
             # Add position and join time estimation
             tier_groups[tier].append((idx+1, player[0], player[1], player[2]))
         
-        # Add description with queue status
-        queue_status = f"**{len(player_pool)}/10** players in queue"
-        if len(player_pool) >= 5:
-            queue_status += " • **Almost there!**"
-        
-        embed.description = f"{queue_status}\n"
-        
         # Add players grouped by tier
         players_list = []
         for tier in sorted(tier_groups.keys(), key=lambda t: TIER_POINTS[t], reverse=True):
@@ -664,7 +687,8 @@ async def display_queue(ctx):
             tier_players = tier_groups[tier]
             
             # Add section for this tier
-            players_list.append(f"**{tier_emoji} {tier} Tier**")
+            full_tier_name = RANK_FULLNAMES.get(tier, tier)
+            players_list.append(f"**{tier_emoji} {full_tier_name} Tier**")
             
             # Add players in this tier
             for pos, name, rank, points in tier_players:
@@ -693,21 +717,6 @@ async def display_queue(ctx):
             inline=False
         )
         
-        # Add estimated time until game starts
-        estimated_time = max(0, (10 - len(player_pool)) * 2)  # Rough estimate: 2 mins per player
-        if estimated_time > 0:
-            embed.add_field(
-                name="⏱️ Estimated Wait",
-                value=f"~{estimated_time} minutes until game starts",
-                inline=True
-            )
-        else:
-            embed.add_field(
-                name="⏱️ Status",
-                value="Ready to start!",
-                inline=True
-            )
-        
         # Add queue timer if active
         if queue_timer and not queue_timer.done():
             elapsed = (asyncio.get_event_loop().time() - queue_start_time)  # in seconds
@@ -726,15 +735,7 @@ async def display_queue(ctx):
                 inline=True
             )
     
-    # Add tips section
-    tips = [
-        "Teams are balanced based on player ranks",
-        f"Visit {WEBSITE_URL} for more League of Flex features!",
-        "Use `!lf information` to see all commands",
-        "Queue resets after 15 minutes of inactivity"
-    ]
-    random_tip = random.choice(tips)
-    embed.set_footer(text=f"💡 Tip: {random_tip}")
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
     
     view = QueueView(ctx)
     return embed, view
@@ -748,27 +749,68 @@ def create_progress_bar(current, maximum, length=10):
     if current == maximum:
         # Complete bar
         return "🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 `100%`"
-    elif current >= maximum * 0.8:
-        # Almost full
-        filled_char = "🟦"
-        empty_char = "⬜"
-        percent = int(current / maximum * 100)
-        return f"{filled_char * filled}{empty_char * empty} `{percent}%`"
-    elif current >= maximum * 0.5:
-        # Half full
-        filled_char = "🟦"
-        empty_char = "⬜"
-        percent = int(current / maximum * 100)
-        return f"{filled_char * filled}{empty_char * empty} `{percent}%`"
     else:
-        # Less than half
+        # Not complete
         filled_char = "🟦"
         empty_char = "⬜"
         percent = int(current / maximum * 100)
         return f"{filled_char * filled}{empty_char * empty} `{percent}%`"
 
+class TimerUpdateModal(discord.ui.Modal):
+    """Modal for updating the queue reset timer."""
+    def __init__(self, view):
+        super().__init__(title="Update Queue Reset Timer")
+        self.original_view = view
+        
+        self.minutes_input = discord.ui.TextInput(
+            label="Minutes (5-30)",
+            placeholder="Enter minutes between 5-30",
+            min_length=1,
+            max_length=2,
+            required=True
+        )
+        self.add_item(self.minutes_input)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            minutes = int(self.minutes_input.value)
+            if minutes < 5 or minutes > 30:
+                await interaction.response.send_message(
+                    "Queue reset time must be between 5 and 30 minutes.", 
+                    ephemeral=True
+                )
+                return
+            
+            # Update the timer
+            global queue_timer, queue_start_time
+            
+            # Cancel existing timer if any
+            if queue_timer and not queue_timer.done():
+                queue_timer.cancel()
+            
+            # Set new timer
+            queue_start_time = asyncio.get_event_loop().time()
+            queue_timer = asyncio.create_task(reset_queue_timer(self.original_view.ctx, minutes * 60))
+            
+            # Send confirmation
+            embed = discord.Embed(
+                title="⏰ Queue Timer Updated",
+                description=f"Queue will reset in **{minutes} minutes** if not filled.",
+                color=GREEN_COLOR
+            )
+            
+            # Show updated queue
+            queue_embed, queue_view = await display_queue(self.original_view.ctx)
+            await interaction.response.send_message(embed=embed, view=queue_view)
+            
+        except ValueError:
+            await interaction.response.send_message(
+                "Please enter a valid number for minutes.", 
+                ephemeral=True
+            )
+
 class QueueView(View):
-    """A view for the join and leave queue buttons with improved styling."""
+    """A view for the join, leave, and update timer queue buttons."""
     
     def __init__(self, ctx):
         super().__init__(timeout=None)
@@ -828,8 +870,12 @@ class QueueView(View):
             color=GREEN_COLOR
         )
         
-        embed, view = await display_queue(self.ctx)
-        await interaction.response.send_message(embed=success_embed, view=view)
+        # Get updated queue embed
+        queue_embed, queue_view = await display_queue(self.ctx)
+        
+        # Send both embeds to show current queue status
+        await interaction.response.send_message(embed=success_embed)
+        await self.ctx.send(embed=queue_embed, view=queue_view)
         
         if len(player_pool) >= 10:
             if queue_timer and not queue_timer.done():
@@ -857,10 +903,9 @@ class QueueView(View):
                         title="Players Remaining",
                         description="These players are still in queue for the next match:",
                         color=BLUE_COLOR
-                    ),
-                    view=remaining_view
+                    )
                 )
-                await self.ctx.send(embed=remaining_embed)
+                await self.ctx.send(embed=remaining_embed, view=remaining_view)
             
             # Update lobby message
             lobby_embed = discord.Embed(
@@ -899,8 +944,12 @@ class QueueView(View):
                 color=ORANGE_COLOR
             )
             
-            embed, view = await display_queue(self.ctx)
-            await interaction.response.send_message(embed=leave_embed, view=view)
+            # Get updated queue embed
+            queue_embed, queue_view = await display_queue(self.ctx)
+            
+            # Send both embeds to show current queue status
+            await interaction.response.send_message(embed=leave_embed)
+            await self.ctx.send(embed=queue_embed, view=queue_view)
         else:
             await interaction.response.send_message(
                 embed=discord.Embed(
@@ -910,6 +959,31 @@ class QueueView(View):
                 ),
                 ephemeral=True
             )
+    
+    @discord.ui.button(label="Update Reset Timer", style=discord.ButtonStyle.blurple, emoji="⏰", custom_id="update_timer")
+    async def update_timer_button(self, interaction: discord.Interaction, button: Button):
+        """Handles update queue reset timer button click."""
+        # Open a modal for user to input new timer value
+        modal = TimerUpdateModal(self)
+        await interaction.response.send_modal(modal)
+
+# Modified reset queue timer function to accept a custom duration
+async def reset_queue_timer(ctx, duration=15 * 60):
+    """Reset the queue after specified duration (defaults to 15 minutes)."""
+    global player_pool, queue_timer
+    
+    try:
+        await asyncio.sleep(duration) 
+        if player_pool:
+            minutes = duration // 60
+            await ctx.send(f"⏰ Queue has been reset due to inactivity ({minutes} minutes timer expired).")
+            player_pool = []
+            embed, view = await display_queue(ctx)
+            await ctx.send(embed=embed, view=view)
+    except asyncio.CancelledError:
+        pass 
+    finally:
+        queue_timer = None
 
 def create_balanced_teams(players):
     """Create balanced 5v5 teams from a list of players with improved visuals."""
@@ -964,16 +1038,16 @@ def create_balanced_teams(players):
 
     # Format teams with better visuals
     team1_info = []
-    for i, player in enumerate(best_team1):
+    for player in best_team1:
         tier_emoji = get_tier_emoji(player[1])
-        position_emoji = ["🎯", "🔱", "⚔️", "🛡️", "🏹"][i]  # Represent different positions
-        team1_info.append(f"{position_emoji} {tier_emoji} **{player[0]}** ({player[1]} - {player[2]} pts)")
+        full_rank_name = RANK_FULLNAMES.get(player[1], player[1])
+        team1_info.append(f"{tier_emoji} **{player[0]}** ({full_rank_name} - {player[2]} pts)")
     
     team2_info = []
-    for i, player in enumerate(best_team2):
+    for player in best_team2:
         tier_emoji = get_tier_emoji(player[1])
-        position_emoji = ["🎯", "🔱", "⚔️", "🛡️", "🏹"][i]  # Represent different positions
-        team2_info.append(f"{position_emoji} {tier_emoji} **{player[0]}** ({player[1]} - {player[2]} pts)")
+        full_rank_name = RANK_FULLNAMES.get(player[1], player[1])
+        team2_info.append(f"{tier_emoji} **{player[0]}** ({full_rank_name} - {player[2]} pts)")
 
     # Add team fields with custom styling
     embed.add_field(
@@ -995,44 +1069,15 @@ def create_balanced_teams(players):
         inline=False
     )
     
-    # Add match quality indicator
-    match_quality = "Extremely Balanced! 🌟" if best_diff < 3 else \
-                    "Well Balanced! ✨" if best_diff < 6 else \
-                    "Balanced ⚖️" if best_diff < 10 else \
-                    "Slightly Unbalanced 🔍" if best_diff < 15 else \
-                    "Unbalanced ⚠️"
-    
+    # Add trash talk section (Spoilers)
+    trash_talk = random.choice(TRASH_TALK_MESSAGES)
     embed.add_field(
-        name="Match Quality",
-        value=match_quality,
-        inline=True
+        name="💬 Spoilers",
+        value=f"*{trash_talk}*",
+        inline=False
     )
     
-    # Add a uniqueness score - how diverse the teams are in terms of ranks
-    team1_ranks = set(player[1] for player in best_team1)
-    team2_ranks = set(player[1] for player in best_team2)
-    diversity = len(team1_ranks) + len(team2_ranks)
-    
-    diversity_rating = "Highly Diverse! 🌈" if diversity >= 8 else \
-                      "Diverse 🎨" if diversity >= 6 else \
-                      "Somewhat Diverse 🧩" if diversity >= 4 else \
-                      "Similar Ranks 🔄"
-    
-    embed.add_field(
-        name="Team Diversity",
-        value=diversity_rating,
-        inline=True
-    )
-    
-    # Add a fun fact or tip
-    tips = [
-        "Team captains are the first players listed",
-        "Try to balance lanes based on player ranks",
-        "Remember to have fun!",
-        "Don't forget to report the match result",
-        f"Visit {WEBSITE_URL} for more features!"
-    ]
-    embed.set_footer(text=f"💡 Tip: {random.choice(tips)}")
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
     
     return embed
 
@@ -1072,7 +1117,7 @@ async def start_lobby(ctx):
         inline=False
     )
     
-    embed.set_footer(text=f"💡 Tip: Use `!lf information` to see all commands • {WEBSITE_URL}")
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
     view = QueueView(ctx)
     
     lobby_message = await ctx.send(embed=embed, view=view)
@@ -1096,11 +1141,11 @@ async def start_lobby(ctx):
                 title="Current Queue", 
                 description="These players are already waiting:", 
                 color=BLUE_COLOR
-            ),
-            view=queue_view
+            )
         )
-        await ctx.send(embed=queue_embed)
-        
+        await ctx.send(embed=queue_embed, view=queue_view)
+
+
 @bot.command(name='information')
 async def help_command(ctx):
     """Displays the information message with all available commands."""
