@@ -2046,7 +2046,45 @@ def parse_summoner_names(text):
     
     return names
 
-def parse_server_and_names(input_text):
+def parse_summoner_names_for_multi(text):
+    """Parse summoner names for multi-search, preserving hashtags."""
+    names = []
+    current_name = ""
+    in_quotes = False
+    i = 0
+    
+    while i < len(text):
+        char = text[i]
+        
+        if char == '"' and not in_quotes:
+            # Start of quoted name
+            in_quotes = True
+        elif char == '"' and in_quotes:
+            # End of quoted name
+            in_quotes = False
+            if current_name.strip():
+                # Keep hashtags for multi-search
+                names.append(current_name.strip())
+            current_name = ""
+        elif char == ' ' and not in_quotes:
+            # Space outside quotes - end of current name
+            if current_name.strip():
+                # Keep hashtags for multi-search
+                names.append(current_name.strip())
+            current_name = ""
+        else:
+            # Regular character
+            current_name += char
+        
+        i += 1
+    
+    # Handle last name if any
+    if current_name.strip():
+        names.append(current_name.strip())
+    
+    return names
+
+def parse_server_and_names(input_text, for_multi_search=False):
     """Parse server and summoner names from input text, handling quotes and hashtags."""
     if not input_text:
         return 'na', []
@@ -2060,18 +2098,26 @@ def parse_server_and_names(input_text):
         # Validate server
         if server_code in OPGG_SERVERS:
             server = OPGG_SERVERS[server_code]
-            names = parse_summoner_names(names_text)
+            if for_multi_search:
+                names = parse_summoner_names_for_multi(names_text)
+            else:
+                names = parse_summoner_names(names_text)
             return server, names
         else:
             # Invalid server, treat whole thing as names
-            names = parse_summoner_names(input_text)
+            if for_multi_search:
+                names = parse_summoner_names_for_multi(input_text)
+            else:
+                names = parse_summoner_names(input_text)
             return 'na', names
     else:
         # No server specified, use NA as default
-        names = parse_summoner_names(input_text)
+        if for_multi_search:
+            names = parse_summoner_names_for_multi(input_text)
+        else:
+            names = parse_summoner_names(input_text)
         return 'na', names
 
-@bot.command(name='riot')
 async def riot_stats(ctx, *, input_text=None):
     """Show OP.GG stats for League players. Usage: !lf riot [names...] or !lf riot SERVER=KR [names...]"""
     if not input_text:
@@ -2091,60 +2137,19 @@ async def riot_stats(ctx, *, input_text=None):
                       f"**Available servers:** {server_list}")
         return
     
-    server, summoner_names = parse_server_and_names(input_text)
+    # Check if this is a multi-search first
+    temp_server, temp_names = parse_server_and_names(input_text, for_multi_search=True)
+    is_multi_search = len(temp_names) > 1
     
-    if not summoner_names:
-        await ctx.send("❌ No summoner names provided.")
-        return
-    
-    # Handle single vs multiple players
-    if len(summoner_names) == 1:
-        # Single player lookup
-        summoner_name = summoner_names[0]
-        # Remove spaces but keep dashes from hashtag conversion
-        clean_name = summoner_name.replace(" ", "")
-        encoded_name = urllib.parse.quote(clean_name)
-        opgg_url = f"https://{server}.op.gg/summoners/{server}/{encoded_name}"
+    if is_multi_search:
+        # Multi-search - preserve hashtags
+        server, summoner_names = parse_server_and_names(input_text, for_multi_search=True)
         
-        embed = discord.Embed(
-            title=f"📊 League Stats: {summoner_name}",
-            description=f"Click the link below to view detailed stats on OP.GG",
-            color=BLUE_COLOR
-        )
-        
-        embed.add_field(
-            name="🔗 OP.GG Profile",
-            value=f"[View {summoner_name}'s Stats]({opgg_url})",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="📈 What you'll find:",
-            value="• Rank & LP\n• Recent match history\n• Champion statistics\n• Win rates & KDA",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="🎮 Recent Games:",
-            value="• Last 20 matches\n• Performance trends\n• Champion performance\n• Build analysis",
-            inline=True
-        )
-        
-        # Show server info
-        server_display = next((k for k, v in OPGG_SERVERS.items() if v == server), server.upper())
-        embed.add_field(
-            name="🌍 Server:",
-            value=f"**{server_display}**",
-            inline=True
-        )
-        
-    else:
-        # Multiple players lookup
         if len(summoner_names) > 10:
             await ctx.send("❌ Maximum 10 players allowed for multi-search.")
             return
         
-        # Clean and encode summoner names - remove spaces but keep dashes from hashtag conversion
+        # Clean and encode summoner names - remove spaces but preserve hashtags
         clean_names = [name.replace(" ", "") for name in summoner_names]
         encoded_names = [urllib.parse.quote(name) for name in clean_names]
         
@@ -2185,10 +2190,59 @@ async def riot_stats(ctx, *, input_text=None):
             value=f"[Compare All Players on OP.GG]({opgg_url})",
             inline=False
         )
+        
+        embed.set_footer(text=f"Stats powered by OP.GG | {WEBSITE_URL}")
+        await ctx.send(embed=embed)
     
-    embed.set_footer(text=f"Stats powered by OP.GG | {WEBSITE_URL}")
-    await ctx.send(embed=embed)
-
+    else:
+        # Single search - convert hashtags to dashes
+        server, summoner_names = parse_server_and_names(input_text, for_multi_search=False)
+        
+        if not summoner_names:
+            await ctx.send("❌ No summoner names provided.")
+            return
+        
+        summoner_name = summoner_names[0]
+        # Remove spaces but keep dashes from hashtag conversion
+        clean_name = summoner_name.replace(" ", "")
+        encoded_name = urllib.parse.quote(clean_name)
+        opgg_url = f"https://{server}.op.gg/summoners/{server}/{encoded_name}"
+        
+        embed = discord.Embed(
+            title=f"📊 League Stats: {summoner_name}",
+            description=f"Click the link below to view detailed stats on OP.GG",
+            color=BLUE_COLOR
+        )
+        
+        embed.add_field(
+            name="🔗 OP.GG Profile",
+            value=f"[View {summoner_name}'s Stats]({opgg_url})",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📈 What you'll find:",
+            value="• Rank & LP\n• Recent match history\n• Champion statistics\n• Win rates & KDA",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🎮 Recent Games:",
+            value="• Last 20 matches\n• Performance trends\n• Champion performance\n• Build analysis",
+            inline=True
+        )
+        
+        # Show server info
+        server_display = next((k for k, v in OPGG_SERVERS.items() if v == server), server.upper())
+        embed.add_field(
+            name="🌍 Server:",
+            value=f"**{server_display}**",
+            inline=True
+        )
+        
+        embed.set_footer(text=f"Stats powered by OP.GG | {WEBSITE_URL}")
+        await ctx.send(embed=embed)
+        
 @bot.command(name='riot-meta')
 async def riot_meta(ctx, server='NA'):
     """Show current meta information from OP.GG. Usage: !lf riot-meta [server]"""
@@ -2237,7 +2291,7 @@ async def riot_meta(ctx, server='NA'):
     
     embed.set_footer(text=f"Meta data powered by OP.GG | {WEBSITE_URL}")
     await ctx.send(embed=embed)
-    
+
 @bot.command(name='riot-patch')
 async def riot_patch(ctx):
     """Show current patch notes and updates."""
