@@ -1,19 +1,23 @@
 import discord
 from discord.ext import commands
-from discord.ui import Button, View, Select, Modal, TextInput
+from discord.ui import Button, View
 import os
 from dotenv import load_dotenv
 from itertools import combinations
-import math
 import random
 import asyncio
-import datetime
-import uuid
-import json
+import string
+from datetime import datetime
+from supabase import create_client, Client
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+
+# Initialize Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -23,8 +27,6 @@ bot = commands.Bot(command_prefix='!lf ', intents=intents, help_command=None)
 
 # Global variables
 player_pool = []
-tournaments = {}
-active_tournament = None
 queue_timer = None
 queue_start_time = None
 
@@ -69,14 +71,6 @@ ROLE_TO_RANK = {
     "Challenger": "C"
 }
 
-# Tournament constants
-TOURNAMENT_PHASE = {
-    "REGISTRATION": "Registration Open",
-    "TEAMS_GENERATED": "Teams Generated",
-    "IN_PROGRESS": "Tournament In Progress",
-    "COMPLETED": "Tournament Completed"
-}
-
 TEAM_NAMES = [
     "David's Coochies", "Driller Drug overdose", "Austin's Python", "Twasen and bumble", "Marc Carney's butt",
     "Autotune's cousin", "RIP Solace", "Silent is _____", "Wuss Squad", "Dried peen",
@@ -94,7 +88,168 @@ TEAL_COLOR = 0x1ABC9C
 # Website to plug
 WEBSITE_URL = "https://www.leagueofflex.com"
 
-# ========================= Original Bot Functions =========================
+# ========================= Database Functions =========================
+
+def generate_match_id():
+    """Generate a unique 6-character match ID."""
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+async def create_match(team1_name, team1_players, team2_name, team2_players):
+    """Create a new match in the database."""
+    try:
+        match_id = generate_match_id()
+        
+        # Ensure match_id is unique
+        while True:
+            existing = supabase.table('matches').select('match_id').eq('match_id', match_id).execute()
+            if not existing.data:
+                break
+            match_id = generate_match_id()
+        
+        match_data = {
+            'match_id': match_id,
+            'team1_name': team1_name,
+            'team2_name': team2_name,
+            'team1_players': team1_players,
+            'team2_players': team2_players,
+            'winner': None,
+            'created_at': datetime.now().isoformat(),
+            'updated_by': None
+        }
+        
+        result = supabase.table('matches').insert(match_data).execute()
+        return match_id, True
+    except Exception as e:
+        print(f"Error creating match: {e}")
+        return None, False
+
+async def update_match_result(match_id, winner_team, moderator_name):
+    """Update match result and player stats."""
+    try:
+        # Get match details
+        match_result = supabase.table('matches').select('*').eq('match_id', match_id).execute()
+        if not match_result.data:
+            return False, "Match not found"
+        
+        match = match_result.data[0]
+        
+        # Update match result
+        update_data = {
+            'winner': winner_team,
+            'updated_by': moderator_name,
+            'updated_at': datetime.now().isoformat()
+        }
+        supabase.table('matches').update(update_data).eq('match_id', match_id).execute()
+        
+        # Update player stats
+        winning_players = match['team1_players'] if winner_team == 'team1' else match['team2_players']
+        losing_players = match['team2_players'] if winner_team == 'team1' else match['team1_players']
+        
+        # Update winners
+        for player in winning_players:
+            await update_player_stats(player, True)
+        
+        # Update losers
+        for player in losing_players:
+            await update_player_stats(player, False)
+        
+        return True, "Match result updated successfully"
+    except Exception as e:
+        print(f"Error updating match result: {e}")
+        return False, f"Error updating match: {str(e)}"
+
+async def update_player_stats(player_name, won):
+    """Update individual player statistics."""
+    try:
+        # Get existing stats
+        result = supabase.table('player_stats').select('*').eq('discord_username', player_name).execute()
+        
+        if result.data:
+            # Update existing player
+            current_stats = result.data[0]
+            new_total = current_stats['total_matches'] + 1
+            new_wins = current_stats['wins'] + (1 if won else 0)
+            new_losses = current_stats['losses'] + (0 if won else 1)
+            new_win_rate = (new_wins / new_total) * 100 if new_total > 0 else 0
+            
+            update_data = {
+                'total_matches': new_total,
+                'wins': new_wins,
+                'losses': new_losses,
+                'win_rate': round(new_win_rate, 2),
+                'last_played': datetime.now().isoformat()
+            }
+            supabase.table('player_stats').update(update_data).eq('discord_username', player_name).execute()
+        else:
+            # Create new player
+            new_stats = {
+                'discord_username': player_name,
+                'total_matches': 1,
+                'wins': 1 if won else 0,
+                'losses': 0 if won else 1,
+                'win_rate': 100.0 if won else 0.0,
+                'last_played': datetime.now().isoformat()
+            }
+            supabase.table('player_stats').insert(new_stats).execute()
+    except Exception as e:
+        print(f"Error updating player stats for {player_name}: {e}")
+
+async def get_match_details(match_id):
+    """Get match details from database."""
+    try:
+        result = supabase.table('matches').select('*').eq('match_id', match_id).execute()
+        if result.data:
+            return result.data[0], True
+        return None, False
+    except Exception as e:
+        print(f"Error getting match details: {e}")
+        return None, False
+
+async def get_player_stats(player_name):
+    """Get player statistics from database."""
+    try:
+        result = supabase.table('player_stats').select('*').eq('discord_username', player_name).execute()
+        if result.data:
+            return result.data[0], True
+        return None, False
+    except Exception as e:
+        print(f"Error getting player stats: {e}")
+        return None, False
+
+async def get_all_player_stats():
+    """Get all player statistics from database."""
+    try:
+        result = supabase.table('player_stats').select('*').order('total_matches', desc=True).execute()
+        return result.data, True
+    except Exception as e:
+        print(f"Error getting all player stats: {e}")
+        return [], False
+
+async def get_leaderboard():
+    """Get player leaderboard sorted by win rate (minimum 3 games)."""
+    try:
+        result = supabase.table('player_stats').select('*').gte('total_matches', 3).order('win_rate', desc=True).limit(15).execute()
+        return result.data, True
+    except Exception as e:
+        print(f"Error getting leaderboard: {e}")
+        return [], False
+
+# ========================= Permission Check =========================
+
+async def check_moderator_permission(ctx):
+    """Check if the user has moderator permissions."""
+    allowed_roles = ["Moderators", "Admin", "Staff", "Moderator"]
+    has_permission = any(role.name in allowed_roles for role in ctx.author.roles)
+    
+    if ctx.guild and ctx.author.id == ctx.guild.owner_id:
+        has_permission = True
+    
+    if not has_permission:
+        await ctx.send("❌ You don't have permission to update match results. This command is restricted to moderators and admins.")
+    
+    return has_permission
+
+# ========================= Bot Functions =========================
 
 async def display_queue(ctx):
     """Displays the current queue as an embed and includes a join button."""
@@ -234,7 +389,7 @@ class QueueView(View):
                 queue_timer.cancel()
                 queue_timer = None
             
-            teams_embed = create_balanced_teams(player_pool[:10])
+            teams_embed = await create_balanced_teams(player_pool[:10])
             await self.ctx.send("🎮 **Queue is full! Creating balanced teams:**", embed=teams_embed)
             del player_pool[:10]
             
@@ -276,41 +431,8 @@ class QueueView(View):
         else:
             await interaction.response.send_message(f"You're not currently in the queue, **{name}**.", ephemeral=True)
 
-def format_tier_points():
-    """Format tier points in a more compact way."""
-    tiers = {
-        "Iron": ["I"],
-        "Iron-Bronze": ["IB"],
-        "Bronze": ["B"],
-        "Bronze-Silver": ["BS"],
-        "Silver": ["S"],
-        "Silver-Gold": ["SG"],
-        "Gold": ["G"],
-        "Gold-Platinum": ["GP"],
-        "Platinum": ["P"],
-        "Platinum-Emerald": ["PE"],
-        "Emerald": ["E"],
-        "Emerald-Diamond": ["ED"],
-        "Diamond": ["D"],
-        "Diamond-Masters": ["DM"],
-        "Master": ["M"],
-        "Grandmaster": ["GM"],
-        "Challenger": ["C"]
-    }
-
-    formatted_tiers = []
-    for tier_name, ranks in tiers.items():
-        if tier_name in ["Master", "Grandmaster", "Challenger"]:
-            tier_str = f"{tier_name}: {TIER_POINTS[ranks[0]]}"
-        else:
-            points = [f"{rank}: {TIER_POINTS[rank]}" for rank in ranks]
-            tier_str = f"{tier_name}: {' | '.join(points)}"
-        formatted_tiers.append(tier_str)
-
-    return formatted_tiers
-
-def create_balanced_teams(players):
-    """Create balanced 5v5 teams from a list of players."""
+async def create_balanced_teams(players):
+    """Create balanced 5v5 teams from a list of players and store in database."""
     best_diff = float('inf')
     best_team1 = None
     best_team2 = None
@@ -335,6 +457,12 @@ def create_balanced_teams(players):
     team1_name = TEAM_NAMES[random_index1]
     team2_name = TEAM_NAMES[random_index2]
 
+    # Create match in database
+    team1_players = [player[0] for player in best_team1]
+    team2_players = [player[0] for player in best_team2]
+    
+    match_id, success = await create_match(team1_name, team1_players, team2_name, team2_players)
+    
     embed = discord.Embed(title="🏆 Balanced Teams (5v5)", color=PURPLE_COLOR)
     
     team1_score = sum(player[2] for player in best_team1)
@@ -351,454 +479,15 @@ def create_balanced_teams(players):
         tier_emoji = get_tier_emoji(player[1])
         team2_info.append(f"{tier_emoji} **{player[0]}** ({player[1]} - {player[2]} pts)")
 
-    embed.add_field(name=f"🔵 {team1_name} ({team1_score:.1f} pts)", value="\n".join(team1_info), inline=True)
-    embed.add_field(name=f"🔴 {team2_name} ({team2_score:.1f} pts)", value="\n".join(team2_info), inline=True)
+    embed.add_field(name=f"🔵 Team A: {team1_name} ({team1_score:.1f} pts)", value="\n".join(team1_info), inline=True)
+    embed.add_field(name=f"🔴 Team B: {team2_name} ({team2_score:.1f} pts)", value="\n".join(team2_info), inline=True)
     embed.add_field(name="⚖️ Balance Info", value=f"Point Difference: **{best_diff:.1f}** points", inline=False)
 
-    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
-    return embed
-
-# ========================= Tournament Data Models =========================
-
-class Tournament:
-    def __init__(self, name, creator_id):
-        self.id = str(uuid.uuid4())[:8]  # Short ID for easier reference
-        self.name = name
-        self.creator_id = creator_id
-        self.participants = []  # List of (name, rank, points) tuples
-        self.teams = []  # List of Team objects
-        self.matches = []  # List of Match objects
-        self.created_at = datetime.datetime.now()
-        self.phase = TOURNAMENT_PHASE["REGISTRATION"]
-        self.winner = None
-    
-    def add_participant(self, name, rank):
-        # Check if name already exists
-        for p in self.participants:
-            if p[0].lower() == name.lower():
-                return False, f"Player {name} is already in the tournament"
-        
-        # Add participant
-        self.participants.append((name, rank, TIER_POINTS[rank]))
-        return True, f"Added {name} ({rank}) to tournament {self.name}"
-    
-    def remove_participant(self, name):
-        for i, participant in enumerate(self.participants):
-            if participant[0].lower() == name.lower():
-                del self.participants[i]
-                return True, f"Removed {name} from tournament {self.name}"
-        
-        return False, f"Player {name} not found in tournament"
-    
-    def generate_teams(self):
-        if len(self.participants) < 40:
-            return False, f"Need 40 participants to generate teams (currently {len(self.participants)})"
-        
-        participants = self.participants.copy()
-        
-        # Sort participants by their tier points in descending order
-        participants.sort(key=lambda x: x[2], reverse=True)
-        
-        # Seed distribution (S-curve seeding)
-        # This will distribute top players across teams
-        team_assignments = [[] for _ in range(8)]
-        
-        # Snake draft pattern: 0,1,2,3,4,5,6,7,7,6,5,4,3,2,1,0,0,1...
-        snake_order = list(range(8)) + list(range(7, -1, -1))
-        snake_order = snake_order * 3  # For 5 players per team
-        snake_order = snake_order[:40]  # Limit to 40 players
-        
-        for i, team_idx in enumerate(snake_order):
-            if i < len(participants):
-                team_assignments[team_idx].append(participants[i])
-        
-        # Create team objects
-        self.teams = []
-        random.shuffle(TEAM_NAMES)  # Shuffle team names
-        
-        for i, players in enumerate(team_assignments):
-            # Take first 8 team names
-            team_name = TEAM_NAMES[i % len(TEAM_NAMES)]
-            team = Team(team_name, players)
-            self.teams.append(team)
-        
-        # Generate initial matches for quarterfinals
-        self.generate_bracket()
-        
-        # Update tournament phase
-        self.phase = TOURNAMENT_PHASE["TEAMS_GENERATED"]
-        
-        return True, f"Generated 8 teams for tournament {self.name}"
-    
-    def generate_bracket(self):
-        # Clear existing matches
-        self.matches = []
-        
-        # Create quarterfinal matches (4 matches)
-        for i in range(0, 8, 2):
-            match = Match(
-                id=f"QF{i//2+1}",
-                team1=self.teams[i],
-                team2=self.teams[i+1],
-                stage="Quarterfinals",
-                match_number=i//2+1,
-                best_of=1
-            )
-            self.matches.append(match)
-        
-        # Create semifinal matches (2 matches)
-        for i in range(2):
-            match = Match(
-                id=f"SF{i+1}",
-                team1=None,  # Will be filled after quarterfinals
-                team2=None,
-                stage="Semifinals",
-                match_number=i+1,
-                best_of=1
-            )
-            self.matches.append(match)
-        
-        # Create final match
-        final_match = Match(
-            id="F1",
-            team1=None,  # Will be filled after semifinals
-            team2=None,
-            stage="Finals",
-            match_number=1,
-            best_of=3  # Finals are BO3
-        )
-        self.matches.append(final_match)
-        
-        # Update tournament phase
-        self.phase = TOURNAMENT_PHASE["IN_PROGRESS"]
-        
-        return True
-    
-    def update_match_result(self, match_id, winner_id, score1=None, score2=None):
-        match = next((m for m in self.matches if m.id == match_id), None)
-        if not match:
-            return False, f"Match {match_id} not found"
-        
-        winner_team = next((t for t in self.teams if t.id == winner_id), None)
-        if not winner_team:
-            return False, f"Team {winner_id} not found"
-        
-        if winner_team != match.team1 and winner_team != match.team2:
-            return False, f"Team {winner_team.name} is not part of this match"
-        
-        # Update match result
-        match.winner = winner_team
-        if score1 is not None and score2 is not None:
-            match.score = (score1, score2)
-        
-        # Advance winner to next stage
-        if match.stage == "Quarterfinals":
-            # Find corresponding semifinal match
-            sf_index = (match.match_number - 1) // 2
-            sf_match = next((m for m in self.matches if m.id == f"SF{sf_index+1}"), None)
-            
-            if sf_match:
-                if match.match_number % 2 == 1:  # 1st or 3rd quarterfinal
-                    sf_match.team1 = winner_team
-                else:  # 2nd or 4th quarterfinal
-                    sf_match.team2 = winner_team
-        
-        elif match.stage == "Semifinals":
-            # Advance to finals
-            final_match = next((m for m in self.matches if m.id == "F1"), None)
-            
-            if final_match:
-                if match.match_number == 1:
-                    final_match.team1 = winner_team
-                else:
-                    final_match.team2 = winner_team
-        
-        elif match.stage == "Finals":
-            # Tournament completed
-            self.winner = winner_team
-            self.phase = TOURNAMENT_PHASE["COMPLETED"]
-        
-        match.completed = True
-        return True, f"Updated match {match_id}: {winner_team.name} wins"
-
-class Team:
-    def __init__(self, name, players):
-        self.id = str(uuid.uuid4())[:8]
-        self.name = name
-        self.players = players
-        self.score = sum(player[2] for player in players)
-    
-    def get_formatted_players(self):
-        result = []
-        for player in self.players:
-            tier_emoji = get_tier_emoji(player[1])
-            result.append(f"{tier_emoji} **{player[0]}** ({player[1]} - {player[2]} pts)")
-        return result
-
-class Match:
-    def __init__(self, id, team1, team2, stage, match_number, best_of):
-        self.id = id
-        self.team1 = team1
-        self.team2 = team2
-        self.stage = stage
-        self.match_number = match_number
-        self.best_of = best_of
-        self.winner = None
-        self.score = None  # Tuple of (team1_score, team2_score)
-        self.completed = False
-
-# ========================= Tournament UI Components =========================
-
-class TeamSelectionView(View):
-    def __init__(self, ctx, tournament, match_id):
-        super().__init__(timeout=60)
-        self.ctx = ctx
-        self.tournament = tournament
-        self.match_id = match_id
-        self.match = next((m for m in tournament.matches if m.id == match_id), None)
-        
-        if not self.match or not self.match.team1 or not self.match.team2:
-            return
-        
-        # Add buttons for each team
-        self.add_item(discord.ui.Button(
-            label=f"{self.match.team1.name}",
-            style=discord.ButtonStyle.primary,
-            custom_id=f"team_{self.match.team1.id}"
-        ))
-        
-        self.add_item(discord.ui.Button(
-            label=f"{self.match.team2.name}",
-            style=discord.ButtonStyle.danger,
-            custom_id=f"team_{self.match.team2.id}"
-        ))
-    
-    async def interaction_check(self, interaction):
-        if interaction.data["custom_id"].startswith("team_"):
-            team_id = interaction.data["custom_id"].replace("team_", "")
-            
-            # Create modal for score input
-            modal = ScoreInputModal(self.tournament, self.match_id, team_id)
-            await interaction.response.send_modal(modal)
-            return True
-        
-        return False
-
-class ScoreInputModal(Modal):
-    def __init__(self, tournament, match_id, winner_id):
-        super().__init__(title="Enter Match Score")
-        self.tournament = tournament
-        self.match_id = match_id
-        self.winner_id = winner_id
-        
-        self.match = next((m for m in tournament.matches if m.id == match_id), None)
-        
-        # Add text inputs for scores
-        self.team1_score = TextInput(
-            label=f"{self.match.team1.name} Score",
-            placeholder="0",
-            required=True,
-            max_length=1
-        )
-        self.add_item(self.team1_score)
-        
-        self.team2_score = TextInput(
-            label=f"{self.match.team2.name} Score",
-            placeholder="0",
-            required=True,
-            max_length=1
-        )
-        self.add_item(self.team2_score)
-    
-    async def on_submit(self, interaction):
-        try:
-            score1 = int(self.team1_score.value)
-            score2 = int(self.team2_score.value)
-            
-            # Validate scores
-            if self.winner_id == self.match.team1.id and score1 <= score2:
-                await interaction.response.send_message("Error: Winner's score must be higher", ephemeral=True)
-                return
-            
-            if self.winner_id == self.match.team2.id and score2 <= score1:
-                await interaction.response.send_message("Error: Winner's score must be higher", ephemeral=True)
-                return
-            
-            # Update match result
-            success, message = self.tournament.update_match_result(
-                self.match_id, 
-                self.winner_id,
-                score1,
-                score2
-            )
-            
-            if success:
-                embed = create_match_embed(self.match)
-                await interaction.response.send_message(f"✅ {message}", embed=embed)
-            else:
-                await interaction.response.send_message(f"❌ {message}", ephemeral=True)
-        
-        except ValueError:
-            await interaction.response.send_message("Please enter valid numbers for scores", ephemeral=True)
-
-# ========================= Tournament Helper Functions =========================
-
-async def check_tournament_admin_permission(ctx):
-    """Check if the user has permission to manage tournaments."""
-    # List of roles that can manage tournaments
-    allowed_roles = ["Moderators", "Admin", "Staff", "Moderator"]
-    
-    # Check if the user has any of the allowed roles
-    has_permission = any(role.name in allowed_roles for role in ctx.author.roles)
-    
-    # Server owner always has permission
-    if ctx.guild and ctx.author.id == ctx.guild.owner_id:
-        has_permission = True
-    
-    # If user doesn't have permission, send a message
-    if not has_permission:
-        await ctx.send("❌ You don't have permission to manage tournaments. This command is restricted to moderators and admins.")
-    
-    return has_permission
-
-def create_tournament_teams_embeds(tournament):
-    """Creates embeds for tournament teams."""
-    embeds = []
-    
-    # Create separate embeds for each team pair (2 teams per embed)
-    for i in range(0, len(tournament.teams), 2):
-        embed = discord.Embed(
-            title=f"🏆 Tournament Teams: {tournament.name}",
-            color=PURPLE_COLOR
-        )
-        
-        # Add first team
-        team1 = tournament.teams[i]
-        team1_players = team1.get_formatted_players()
-        embed.add_field(
-            name=f"Team {i+1}: {team1.name} ({team1.score:.1f} pts) [ID: {team1.id}]",
-            value="\n".join(team1_players),
-            inline=True
-        )
-        
-        # Add second team if exists
-        if i + 1 < len(tournament.teams):
-            team2 = tournament.teams[i+1]
-            team2_players = team2.get_formatted_players()
-            embed.add_field(
-                name=f"Team {i+2}: {team2.name} ({team2.score:.1f} pts) [ID: {team2.id}]",
-                value="\n".join(team2_players),
-                inline=True
-            )
-        
+    if success and match_id:
+        embed.set_footer(text=f"Match ID: {match_id} | Visit {WEBSITE_URL} for more features!")
+    else:
         embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
-        embeds.append(embed)
-    
-    return embeds
 
-def create_tournament_matches_embed(tournament):
-    """Creates embed for tournament matches."""
-    embed = discord.Embed(
-        title=f"🏆 Tournament Matches: {tournament.name}",
-        description=f"Tournament Phase: {tournament.phase}",
-        color=PURPLE_COLOR
-    )
-    
-    # Group matches by stage
-    stages = {}
-    for match in tournament.matches:
-        if match.stage not in stages:
-            stages[match.stage] = []
-        stages[match.stage].append(match)
-    
-    # Add matches by stage
-    for stage, matches in stages.items():
-        matches_info = []
-        
-        for match in matches:
-            team1_name = match.team1.name if match.team1 else "TBD"
-            team2_name = match.team2.name if match.team2 else "TBD"
-            
-            if match.winner:
-                if match.score:
-                    score_str = f" ({match.score[0]}-{match.score[1]})"
-                else:
-                    score_str = ""
-                status = f"✓ {match.winner.name} won{score_str}"
-            else:
-                status = "Pending"
-            
-            matches_info.append(f"**{match.id}**: {team1_name} vs {team2_name} - {status}")
-        
-        embed.add_field(
-            name=stage,
-            value="\n".join(matches_info),
-            inline=False
-        )
-    
-    if tournament.winner:
-        embed.add_field(
-            name="🎉 Tournament Winner",
-            value=f"**{tournament.winner.name}**",
-            inline=False
-        )
-    
-    embed.set_footer(text=f"Use `!lf tournament update [match_id]` to update match results")
-    return embed
-
-def create_match_embed(match):
-    """Creates embed for a specific match."""
-    # Define colors for different stages
-    stage_colors = {
-        "Quarterfinals": 0x3498DB,  # Blue
-        "Semifinals": 0x9B59B6,    # Purple
-        "Finals": 0xF1C40F        # Gold
-    }
-    
-    color = stage_colors.get(match.stage, PURPLE_COLOR)
-    
-    embed = discord.Embed(
-        title=f"🏆 {match.stage} - Match {match.id}",
-        description=f"Best of {match.best_of}",
-        color=color
-    )
-    
-    # Team 1 info
-    if match.team1:
-        team1_players = match.team1.get_formatted_players()
-        embed.add_field(
-            name=f"🔵 {match.team1.name} ({match.team1.score:.1f} pts)",
-            value="\n".join(team1_players),
-            inline=True
-        )
-    else:
-        embed.add_field(name="🔵 TBD", value="To be determined", inline=True)
-    
-    # Team 2 info
-    if match.team2:
-        team2_players = match.team2.get_formatted_players()
-        embed.add_field(
-            name=f"🔴 {match.team2.name} ({match.team2.score:.1f} pts)",
-            value="\n".join(team2_players),
-            inline=True
-        )
-    else:
-        embed.add_field(name="🔴 TBD", value="To be determined", inline=True)
-    
-    # Match result
-    if match.winner:
-        if match.score:
-            score_str = f" ({match.score[0]}-{match.score[1]})"
-        else:
-            score_str = ""
-        
-        embed.add_field(
-            name="Match Result",
-            value=f"✓ **{match.winner.name}** won{score_str}",
-            inline=False
-        )
-    
-    embed.set_footer(text=f"Update this match with: !lf tournament update {match.id}")
     return embed
 
 # ========================= Bot Commands and Events =========================
@@ -835,11 +524,6 @@ async def start_lobby(ctx):
     
     lobby_message = await ctx.send(embed=embed, view=view)
     
-    # try:
-    #     await lobby_message.pin()
-    # except discord.HTTPException:
-    #     await ctx.send("Note: I couldn't pin the lobby message. For best visibility, an admin should pin it manually.")
-    
     if player_pool:
         queue_embed, queue_view = await display_queue(ctx)
         await ctx.send("Current queue:", embed=queue_embed, view=queue_view)
@@ -849,7 +533,8 @@ async def help_command(ctx):
     """Displays the information message with all available commands."""
     embed = discord.Embed(title="🎮 League of Legends Team Balancer Help", color=TEAL_COLOR)
 
-    commands_part1 = (
+    commands_text = (
+        "**Basic Commands:**\n"
         "1. `!lf team [player1] [rank1] [player2] [rank2] ...`\n"
         "   - Creates balanced 5v5 teams with randomized team names\n"
         "   - Requires exactly 10 players with their ranks\n\n"
@@ -864,24 +549,32 @@ async def help_command(ctx):
         "   - Shows the current queue status\n\n"
         "6. `!lf queueclear`\n"
         "   - Clears the current queue and cancels the timer\n\n"
-        "7. `!lf clear [option]`\n"
-        "    - Clear specific data. Options: players, teams, tournaments, matches, all\n\n"
-        "8. `!lf information`\n"
-        "    - Shows this help message\n"
-    )
-
-    embed.add_field(name="Available Commands", value=commands_part1, inline=False)
-
-    commands_tournament = (
-        "9. `!lf tournament create [name]`\n"
-        "   - Create a new tournament\n\n"
-        "10. `!lf tournament add [name] [rank]`\n"
-        "   - Add a player to the tournament\n\n"
-        "11. `!lf tournament help`\n"
-        "   - Show all tournament commands\n"
+        "7. `!lf lobby`\n"
+        "   - Start a custom game lobby with join/leave buttons\n\n"
     )
     
-    embed.add_field(name="Tournament Commands", value=commands_tournament, inline=False)
+    match_commands = (
+        "**Match & Stats Commands:**\n"
+        "8. `!lf result [match_id] [teama/teamb]` *(Moderators only)*\n"
+        "   - Update match result (e.g., `!lf result ABC123 teama`)\n\n"
+        "9. `!lf edit [match_id] [teama/teamb]` *(Moderators only)*\n"
+        "   - Edit/change an existing match result\n\n"
+        "10. `!lf match [match_id]`\n"
+        "   - Show details of a specific match\n\n"
+        "11. `!lf stats [player_name]`\n"
+        "   - Show player's win/loss statistics\n\n"
+        "12. `!lf players`\n"
+        "   - Show all players and their statistics\n\n"
+        "13. `!lf leaderboard`\n"
+        "   - Show top players by win rate (min 3 games)\n\n"
+        "14. `!lf clear players`\n"
+        "   - Clear the player queue\n\n"
+        "15. `!lf information`\n"
+        "   - Shows this help message\n"
+    )
+
+    embed.add_field(name="Commands", value=commands_text, inline=False)
+    embed.add_field(name="More Commands", value=match_commands, inline=False)
 
     # Create a visual representation of the rank tiers with emojis
     ranks_info = ""
@@ -919,6 +612,120 @@ async def tiers_command(ctx):
         )
     
     embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+    await ctx.send(embed=embed)
+
+@bot.command(name='players')
+async def show_all_players(ctx):
+    """Show all players and their statistics."""
+    players_data, found = await get_all_player_stats()
+    
+    if not found or not players_data:
+        await ctx.send("❌ No player statistics found. No matches have been played yet.")
+        return
+    
+    embed = discord.Embed(
+        title="👥 All Players Statistics",
+        description=f"Total players: **{len(players_data)}**",
+        color=BLUE_COLOR
+    )
+    
+    # Group players into chunks for better display
+    players_per_field = 10
+    total_players = len(players_data)
+    
+    for i in range(0, total_players, players_per_field):
+        chunk = players_data[i:i + players_per_field]
+        field_name = f"Players {i+1}-{min(i+players_per_field, total_players)}"
+        
+        player_lines = []
+        for player in chunk:
+            # Win rate emoji
+            win_rate = player['win_rate']
+            if win_rate >= 70:
+                wr_emoji = "🔥"
+            elif win_rate >= 50:
+                wr_emoji = "👍"
+            else:
+                wr_emoji = "📉"
+            
+            player_lines.append(
+                f"**{player['discord_username']}**: {player['wins']}W-{player['losses']}L "
+                f"({player['win_rate']}% {wr_emoji})"
+            )
+        
+        embed.add_field(
+            name=field_name,
+            value="\n".join(player_lines),
+            inline=True
+        )
+    
+    embed.set_footer(text=f"Use !lf stats [player] for detailed stats | {WEBSITE_URL}")
+    await ctx.send(embed=embed)
+
+@bot.command(name='leaderboard', aliases=['lb', 'top'])
+async def show_leaderboard(ctx):
+    """Show top players by win rate (minimum 3 games)."""
+    leaderboard_data, found = await get_leaderboard()
+    
+    if not found or not leaderboard_data:
+        await ctx.send("❌ No leaderboard data found. Players need at least 3 games to appear on the leaderboard.")
+        return
+    
+    embed = discord.Embed(
+        title="🏆 Leaderboard - Top Players",
+        description="*Minimum 3 games required*",
+        color=PURPLE_COLOR
+    )
+    
+    # Create leaderboard entries
+    leaderboard_lines = []
+    for idx, player in enumerate(leaderboard_data):
+        # Position emoji
+        if idx == 0:
+            position = "🥇"
+        elif idx == 1:
+            position = "🥈"
+        elif idx == 2:
+            position = "🥉"
+        else:
+            position = f"`{idx+1}.`"
+        
+        # Win rate emoji
+        win_rate = player['win_rate']
+        if win_rate >= 70:
+            wr_emoji = "🔥"
+        elif win_rate >= 50:
+            wr_emoji = "👍"
+        else:
+            wr_emoji = "📉"
+        
+        leaderboard_lines.append(
+            f"{position} **{player['discord_username']}** - {player['win_rate']}% {wr_emoji}\n"
+            f"    ↳ {player['wins']}W-{player['losses']}L ({player['total_matches']} games)"
+        )
+    
+    # Split into fields if too many players
+    if len(leaderboard_lines) <= 10:
+        embed.add_field(
+            name="Rankings",
+            value="\n\n".join(leaderboard_lines),
+            inline=False
+        )
+    else:
+        # Split into two fields
+        mid_point = len(leaderboard_lines) // 2
+        embed.add_field(
+            name="Top Rankings (1-8)",
+            value="\n\n".join(leaderboard_lines[:mid_point]),
+            inline=True
+        )
+        embed.add_field(
+            name="Rankings (9-15)",
+            value="\n\n".join(leaderboard_lines[mid_point:]),
+            inline=True
+        )
+    
+    embed.set_footer(text=f"Use !lf stats [player] for detailed stats | {WEBSITE_URL}")
     await ctx.send(embed=embed)
 
 @bot.command(name='join')
@@ -993,7 +800,7 @@ async def join_queue(ctx, name=None, rank=None):
             queue_timer.cancel()
             queue_timer = None
         
-        teams_embed = create_balanced_teams(player_pool[:10])
+        teams_embed = await create_balanced_teams(player_pool[:10])
         await ctx.send("🎮 **Queue is full! Creating balanced teams:**", embed=teams_embed)
         del player_pool[:10]
         
@@ -1112,45 +919,237 @@ async def team_balance(ctx, *, input_text=None):
                 return
             players.append((player_name, player_rank, TIER_POINTS[player_rank]))
 
-        teams_embed = create_balanced_teams(players)
+        teams_embed = await create_balanced_teams(players)
         await ctx.send(embed=teams_embed)
     except Exception as e:
         await ctx.send("❌ Error creating teams. Use `!lf information` for the correct format.")
         print(f"Error: {str(e)}") 
 
-@bot.group(name='clear', invoke_without_command=True)
-async def clear(ctx):
-    """Base command for clearing data."""
-    await ctx.send("Please specify what to clear. Options: players, teams, tournaments, matches, all")
-
-@clear.command(name='players')
+@bot.command(name='clear')
 async def clear_players(ctx):
     """Clears the player queue."""
     global player_pool, queue_timer
+    
+    if not player_pool:
+        await ctx.send("Queue is already empty.")
+        return
+    
+    player_count = len(player_pool)
     player_pool = []
+    
     if queue_timer and not queue_timer.done():
         queue_timer.cancel()
         queue_timer = None
-    await ctx.send("🧹 Player queue has been cleared.")
+    
+    await ctx.send(f"🧹 Player queue has been cleared. Removed **{player_count}** player(s).")
 
-@clear.command(name='teams')
-async def clear_teams(ctx):
-    """Clears all tournament teams."""
-    global tournaments
-    for tournament in tournaments.values():
-        tournament.teams = []
-    await ctx.send("🧹 All tournament teams have been cleared.")
+# ========================= Match Result Commands =========================
 
-@clear.command(name='all')
-async def clear_all(ctx):
-    """Clears all data including players, teams, tournaments, and matches."""
-    global player_pool, tournaments, queue_timer
-    player_pool = []
-    tournaments = {}
-    if queue_timer and not queue_timer.done():
-        queue_timer.cancel()
-        queue_timer = None
-    await ctx.send("🧹 All data has been cleared.")
+@bot.command(name='result')
+async def update_result(ctx, match_id=None, winner=None):
+    """Update match result. Usage: !lf result [match_id] [teama/teamb]"""
+    if not await check_moderator_permission(ctx):
+        return
+    
+    if not match_id or not winner:
+        await ctx.send("❌ Usage: `!lf result [match_id] [teama/teamb]`\nExample: `!lf result ABC123 teama`")
+        return
+    
+    winner = winner.lower()
+    if winner not in ['teama', 'teamb', 'team1', 'team2']:
+        await ctx.send("❌ Winner must be 'teama' or 'teamb'")
+        return
+    
+    # Convert team1/team2 to teama/teamb for consistency
+    if winner == 'team1':
+        winner = 'teama'
+    elif winner == 'team2':
+        winner = 'teamb'
+    
+    # Convert to database format (team1/team2)
+    db_winner = 'team1' if winner == 'teama' else 'team2'
+    
+    success, message = await update_match_result(match_id.upper(), db_winner, ctx.author.display_name)
+    
+    if success:
+        # Get match details for announcement
+        match_data, found = await get_match_details(match_id.upper())
+        if found:
+            winning_team_name = match_data['team1_name'] if db_winner == 'team1' else match_data['team2_name']
+            
+            embed = discord.Embed(
+                title="🏆 Match Result Updated!",
+                description=f"**{winning_team_name}** wins!",
+                color=GREEN_COLOR
+            )
+            embed.add_field(name="Match ID", value=match_id.upper(), inline=True)
+            embed.add_field(name="Updated by", value=ctx.author.display_name, inline=True)
+            embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+            
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"✅ {message}")
+    else:
+        await ctx.send(f"❌ {message}")
+
+@bot.command(name='edit')
+async def edit_result(ctx, match_id=None, winner=None):
+    """Edit/change an existing match result. Usage: !lf edit [match_id] [teama/teamb]"""
+    if not await check_moderator_permission(ctx):
+        return
+    
+    if not match_id or not winner:
+        await ctx.send("❌ Usage: `!lf edit [match_id] [teama/teamb]`\nExample: `!lf edit ABC123 teamb`")
+        return
+    
+    winner = winner.lower()
+    if winner not in ['teama', 'teamb', 'team1', 'team2']:
+        await ctx.send("❌ Winner must be 'teama' or 'teamb'")
+        return
+    
+    # Convert team1/team2 to teama/teamb for consistency
+    if winner == 'team1':
+        winner = 'teama'
+    elif winner == 'team2':
+        winner = 'teamb'
+    
+    # Convert to database format (team1/team2)
+    db_winner = 'team1' if winner == 'teama' else 'team2'
+    
+    # Check if match exists first
+    match_data, found = await get_match_details(match_id.upper())
+    if not found:
+        await ctx.send("❌ Match not found")
+        return
+    
+    if match_data['winner'] is None:
+        await ctx.send("❌ This match has no result to edit. Use `!lf result` instead.")
+        return
+    
+    success, message = await update_match_result(match_id.upper(), db_winner, ctx.author.display_name)
+    
+    if success:
+        winning_team_name = match_data['team1_name'] if db_winner == 'team1' else match_data['team2_name']
+        
+        embed = discord.Embed(
+            title="✏️ Match Result Edited!",
+            description=f"**{winning_team_name}** now wins!",
+            color=ORANGE_COLOR
+        )
+        embed.add_field(name="Match ID", value=match_id.upper(), inline=True)
+        embed.add_field(name="Updated by", value=ctx.author.display_name, inline=True)
+        embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+        
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"❌ {message}")
+
+@bot.command(name='match')
+async def show_match(ctx, match_id=None):
+    """Show details of a specific match. Usage: !lf match [match_id]"""
+    if not match_id:
+        await ctx.send("❌ Usage: `!lf match [match_id]`\nExample: `!lf match ABC123`")
+        return
+    
+    match_data, found = await get_match_details(match_id.upper())
+    if not found:
+        await ctx.send("❌ Match not found")
+        return
+    
+    embed = discord.Embed(
+        title=f"🎮 Match Details: {match_id.upper()}",
+        color=BLUE_COLOR
+    )
+    
+    # Team A info
+    team1_players = "\n".join([f"• **{player}**" for player in match_data['team1_players']])
+    embed.add_field(
+        name=f"🔵 Team A: {match_data['team1_name']}",
+        value=team1_players,
+        inline=True
+    )
+    
+    # Team B info
+    team2_players = "\n".join([f"• **{player}**" for player in match_data['team2_players']])
+    embed.add_field(
+        name=f"🔴 Team B: {match_data['team2_name']}",
+        value=team2_players,
+        inline=True
+    )
+    
+    # Match status
+    if match_data['winner']:
+        winner_name = match_data['team1_name'] if match_data['winner'] == 'team1' else match_data['team2_name']
+        winner_team = "Team A" if match_data['winner'] == 'team1' else "Team B"
+        status_value = f"🏆 **{winner_team}: {winner_name}** won!"
+        if match_data['updated_by']:
+            status_value += f"\nUpdated by: {match_data['updated_by']}"
+    else:
+        status_value = "⏳ Pending result"
+    
+    embed.add_field(name="Match Status", value=status_value, inline=False)
+    
+    # Timestamps
+    created_date = datetime.fromisoformat(match_data['created_at'].replace('Z', '+00:00'))
+    embed.add_field(name="Created", value=created_date.strftime("%Y-%m-%d %H:%M UTC"), inline=True)
+    
+    if match_data.get('updated_at'):
+        updated_date = datetime.fromisoformat(match_data['updated_at'].replace('Z', '+00:00'))
+        embed.add_field(name="Completed", value=updated_date.strftime("%Y-%m-%d %H:%M UTC"), inline=True)
+    
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+    await ctx.send(embed=embed)
+
+@bot.command(name='stats')
+async def show_stats(ctx, *, player_name=None):
+    """Show player statistics. Usage: !lf stats [player_name]"""
+    if not player_name:
+        player_name = ctx.author.display_name
+    
+    stats, found = await get_player_stats(player_name)
+    if not found:
+        await ctx.send(f"❌ No statistics found for **{player_name}**. They haven't played any tracked matches yet.")
+        return
+    
+    embed = discord.Embed(
+        title=f"📊 Player Statistics: {player_name}",
+        color=PURPLE_COLOR
+    )
+    
+    # Basic stats
+    embed.add_field(name="Total Matches", value=f"**{stats['total_matches']}**", inline=True)
+    embed.add_field(name="Wins", value=f"**{stats['wins']}** 🏆", inline=True)
+    embed.add_field(name="Losses", value=f"**{stats['losses']}** ❌", inline=True)
+    
+    # Win rate with visual bar
+    win_rate = stats['win_rate']
+    if win_rate >= 70:
+        wr_emoji = "🔥"
+        wr_color = "🟢"
+    elif win_rate >= 50:
+        wr_emoji = "👍"
+        wr_color = "🟡"
+    else:
+        wr_emoji = "📉"
+        wr_color = "🔴"
+    
+    embed.add_field(
+        name="Win Rate",
+        value=f"{wr_color} **{win_rate}%** {wr_emoji}",
+        inline=True
+    )
+    
+    # Last played
+    if stats.get('last_played'):
+        last_played = datetime.fromisoformat(stats['last_played'].replace('Z', '+00:00'))
+        embed.add_field(
+            name="Last Played",
+            value=last_played.strftime("%Y-%m-%d"),
+            inline=True
+        )
+    
+    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+    await ctx.send(embed=embed)
 
 @bot.event
 async def on_message(message):
@@ -1168,450 +1167,6 @@ async def on_message(message):
     
     # Process commands - this is necessary so that normal commands still work
     await bot.process_commands(message)
-
-# ========================= Tournament Commands =========================
-
-@bot.group(name='tournament', aliases=['t', 'tourney'], invoke_without_command=True)
-async def tournament(ctx):
-    """Base command for tournament management."""
-    await ctx.send("Please use a subcommand: create, add, remove, generate, teams, matches, update, clear, info, active")
-
-@tournament.command(name='create')
-async def tournament_create(ctx, *, name=None):
-    """Creates a new tournament."""
-    # Check if user has permission
-    if not await check_tournament_admin_permission(ctx):
-        return
-    
-    global active_tournament
-    
-    if not name:
-        await ctx.send("❌ Please provide a tournament name: `!lf tournament create [name]`")
-        return
-    
-    tournament = Tournament(name, ctx.author.id)
-    tournaments[tournament.id] = tournament
-    active_tournament = tournament.id
-    
-    embed = discord.Embed(
-        title=f"🏆 Tournament Created: {tournament.name}",
-        description=f"Tournament ID: `{tournament.id}`\nUse `!lf tournament add [name] [rank]` to add participants",
-        color=PURPLE_COLOR
-    )
-    embed.add_field(name="Status", value=tournament.phase, inline=True)
-    embed.add_field(name="Participants", value="0/40", inline=True)
-    embed.add_field(name="Created By", value=ctx.author.mention, inline=True)
-    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
-    
-    await ctx.send(embed=embed)
-
-@tournament.command(name='add')
-async def tournament_add(ctx, name=None, rank=None):
-    """Adds a player to the active tournament."""
-    # Check if user has permission
-    if not await check_tournament_admin_permission(ctx):
-        return
-    
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament. Create one with `!lf tournament create [name]`")
-        return
-    
-    tournament = tournaments[active_tournament]
-    
-    if tournament.phase != TOURNAMENT_PHASE["REGISTRATION"]:
-        await ctx.send(f"❌ Cannot add participants. Tournament is in {tournament.phase} phase.")
-        return
-    
-    if not name:
-        await ctx.send("❌ Please provide a player name: `!lf tournament add [name] [rank]`")
-        return
-    
-    if not rank:
-        await ctx.send("❌ Please provide a player rank: `!lf tournament add [name] [rank]`")
-        return
-    
-    rank = rank.upper()
-    if rank not in TIER_POINTS:
-        await ctx.send(f"❌ Invalid rank '**{rank}**'. Use `!lf information` to see valid ranks.")
-        return
-    
-    success, message = tournament.add_participant(name, rank)
-    
-    if success:
-        participants_count = len(tournament.participants)
-        await ctx.send(f"✅ {message} ({participants_count}/40 participants)")
-        
-        if participants_count >= 40:
-            await ctx.send("🎮 **You now have 40 participants!** Use `!lf tournament generate` to create teams and matches")
-    else:
-        await ctx.send(f"❌ {message}")
-
-@tournament.command(name='addmany')
-async def tournament_add_many(ctx, *, player_data=None):
-    """Adds multiple players to the active tournament.
-    Format: name1 rank1, name2 rank2, name3 rank3, ..."""
-    # Check if user has permission
-    if not await check_tournament_admin_permission(ctx):
-        return
-    
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament. Create one with `!lf tournament create [name]`")
-        return
-    
-    tournament = tournaments[active_tournament]
-    
-    if tournament.phase != TOURNAMENT_PHASE["REGISTRATION"]:
-        await ctx.send(f"❌ Cannot add participants. Tournament is in {tournament.phase} phase.")
-        return
-    
-    if not player_data:
-        await ctx.send("❌ Please provide player data in format: `name1 rank1, name2 rank2, ...`")
-        return
-    
-    # Split by commas to get each player's data
-    player_entries = player_data.split(',')
-    added_count = 0
-    errors = []
-    
-    for entry in player_entries:
-        parts = entry.strip().split()
-        if len(parts) < 2:
-            errors.append(f"Invalid entry: {entry} (missing rank)")
-            continue
-        
-        # Last part is the rank, everything before is the name
-        rank = parts[-1].upper()
-        name = ' '.join(parts[:-1])
-        
-        if rank not in TIER_POINTS:
-            errors.append(f"Invalid rank '{rank}' for player '{name}'")
-            continue
-        
-        success, message = tournament.add_participant(name, rank)
-        if success:
-            added_count += 1
-        else:
-            errors.append(message)
-    
-    # Report results
-    response = f"✅ Added {added_count} players to the tournament."
-    if errors:
-        response += f"\n❌ Errors ({len(errors)}):\n" + "\n".join(errors)
-    
-    participants_count = len(tournament.participants)
-    response += f"\n\nTotal participants: {participants_count}/40"
-    
-    if participants_count >= 40:
-        response += "\n🎮 **You now have 40 participants!** Use `!lf tournament generate` to create teams and matches"
-    
-    await ctx.send(response)
-    
-@tournament.command(name='remove')
-async def tournament_remove(ctx, *, name=None):
-    """Removes a player from the active tournament."""
-    # Check if user has permission
-    if not await check_tournament_admin_permission(ctx):
-        return
-    
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament. Create one with `!lf tournament create [name]`")
-        return
-    
-    tournament = tournaments[active_tournament]
-    
-    if tournament.phase != TOURNAMENT_PHASE["REGISTRATION"]:
-        await ctx.send(f"❌ Cannot remove participants. Tournament is in {tournament.phase} phase.")
-        return
-    
-    if not name:
-        await ctx.send("❌ Please provide a player name: `!lf tournament remove [name]`")
-        return
-    
-    success, message = tournament.remove_participant(name)
-    
-    if success:
-        participants_count = len(tournament.participants)
-        await ctx.send(f"✅ {message} ({participants_count}/40 participants)")
-    else:
-        await ctx.send(f"❌ {message}")
-
-@tournament.command(name='generate')
-async def tournament_generate(ctx):
-    """Generates balanced teams and bracket for the active tournament."""
-    # Check if user has permission
-    if not await check_tournament_admin_permission(ctx):
-        return
-    
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament. Create one with `!lf tournament create [name]`")
-        return
-    
-    tournament = tournaments[active_tournament]
-    
-    if tournament.phase != TOURNAMENT_PHASE["REGISTRATION"]:
-        await ctx.send(f"❌ Teams have already been generated. Tournament is in {tournament.phase} phase.")
-        return
-    
-    success, message = tournament.generate_teams()
-    
-    if success:
-        await ctx.send(f"✅ {message}")
-        
-        # Send teams info
-        teams_embeds = create_tournament_teams_embeds(tournament)
-        for embed in teams_embeds:
-            await ctx.send(embed=embed)
-        
-        # Send matches info
-        matches_embed = create_tournament_matches_embed(tournament)
-        await ctx.send(embed=matches_embed)
-    else:
-        await ctx.send(f"❌ {message}")
-
-@tournament.command(name='teams')
-async def tournament_teams(ctx):
-    """Shows all teams in the active tournament."""
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament. Create one with `!lf tournament create [name]`")
-        return
-    
-    tournament = tournaments[active_tournament]
-    
-    if not tournament.teams:
-        await ctx.send("❌ Teams have not been generated yet. Use `!lf tournament generate` to create teams.")
-        return
-    
-    teams_embeds = create_tournament_teams_embeds(tournament)
-    for embed in teams_embeds:
-        await ctx.send(embed=embed)
-
-@tournament.command(name='matches')
-async def tournament_matches(ctx):
-    """Shows all matches in the active tournament."""
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament. Create one with `!lf tournament create [name]`")
-        return
-    
-    tournament = tournaments[active_tournament]
-    
-    if not tournament.matches:
-        await ctx.send("❌ Matches have not been generated yet. Use `!lf tournament generate` to create matches.")
-        return
-    
-    matches_embed = create_tournament_matches_embed(tournament)
-    await ctx.send(embed=matches_embed)
-
-@tournament.command(name='match')
-async def tournament_match(ctx, match_id=None):
-    """Shows details for a specific match."""
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament. Create one with `!lf tournament create [name]`")
-        return
-    
-    tournament = tournaments[active_tournament]
-    
-    if not match_id:
-        await ctx.send("❌ Please provide a match ID: `!lf tournament match [match_id]`")
-        return
-    
-    match = next((m for m in tournament.matches if m.id == match_id), None)
-    if not match:
-        await ctx.send(f"❌ Match {match_id} not found")
-        return
-    
-    embed = create_match_embed(match)
-    await ctx.send(embed=embed)
-
-@tournament.command(name='update')
-async def tournament_update(ctx, match_id=None):
-    """Updates the result of a match."""
-    # Check if user has permission
-    if not await check_tournament_admin_permission(ctx):
-        return
-    
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament. Create one with `!lf tournament create [name]`")
-        return
-    
-    tournament = tournaments[active_tournament]
-    
-    if not match_id:
-        await ctx.send("❌ Please provide a match ID: `!lf tournament update [match_id]`")
-        return
-    
-    match = next((m for m in tournament.matches if m.id == match_id), None)
-    if not match:
-        await ctx.send(f"❌ Match {match_id} not found")
-        return
-    
-    if not match.team1 or not match.team2:
-        await ctx.send(f"❌ Teams for match {match_id} are not set yet")
-        return
-    
-    if match.completed:
-        await ctx.send(f"❌ Match {match_id} is already completed")
-        return
-    
-    # Show team selection view
-    embed = create_match_embed(match)
-    embed.add_field(name="Update Result", value="Select the winning team below:", inline=False)
-    
-    view = TeamSelectionView(ctx, tournament, match_id)
-    await ctx.send(embed=embed, view=view)
-
-@tournament.command(name='clear')
-async def tournament_clear(ctx):
-    """Clears the active tournament."""
-    # Check if user has permission
-    if not await check_tournament_admin_permission(ctx):
-        return
-    
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament to clear")
-        return
-    
-    del tournaments[active_tournament]
-    active_tournament = None
-    
-    await ctx.send("🧹 Active tournament has been cleared")
-
-@tournament.command(name='active')
-async def tournament_active(ctx, tournament_id=None):
-    """Sets the active tournament or shows current active tournament."""
-    # Check if user has permission for setting active tournament
-    if tournament_id and not await check_tournament_admin_permission(ctx):
-        return
-    
-    global active_tournament
-    
-    if tournament_id:
-        if tournament_id in tournaments:
-            active_tournament = tournament_id
-            tournament = tournaments[active_tournament]
-            await ctx.send(f"✅ Active tournament set to: **{tournament.name}** (ID: `{tournament.id}`)")
-        else:
-            await ctx.send(f"❌ Tournament with ID `{tournament_id}` not found")
-    else:
-        if active_tournament and active_tournament in tournaments:
-            tournament = tournaments[active_tournament]
-            await ctx.send(f"🏆 Current active tournament: **{tournament.name}** (ID: `{tournament.id}`)")
-        else:
-            await ctx.send("❌ No active tournament set")
-
-@tournament.command(name='list')
-async def tournament_list(ctx):
-    """Lists all tournaments."""
-    if not tournaments:
-        await ctx.send("❌ No tournaments created yet")
-        return
-    
-    embed = discord.Embed(
-        title="🏆 All Tournaments",
-        description=f"Total tournaments: {len(tournaments)}",
-        color=PURPLE_COLOR
-    )
-    
-    for tournament_id, tournament in tournaments.items():
-        active_marker = "✅ " if tournament_id == active_tournament else ""
-        embed.add_field(
-            name=f"{active_marker}{tournament.name} (ID: {tournament_id})",
-            value=f"Phase: {tournament.phase}\nTeams: {len(tournament.teams)}\nParticipants: {len(tournament.participants)}/40",
-            inline=False
-        )
-    
-    embed.set_footer(text=f"Use `!lf tournament active [id]` to set the active tournament")
-    await ctx.send(embed=embed)
-
-@tournament.command(name='info')
-async def tournament_info(ctx):
-    """Shows information about the active tournament."""
-    global active_tournament
-    
-    if not active_tournament or active_tournament not in tournaments:
-        await ctx.send("❌ No active tournament. Create one with `!lf tournament create [name]`")
-        return
-    
-    tournament = tournaments[active_tournament]
-    
-    embed = discord.Embed(
-        title=f"🏆 Tournament: {tournament.name}",
-        description=f"ID: `{tournament.id}`",
-        color=PURPLE_COLOR
-    )
-    
-    embed.add_field(name="Status", value=tournament.phase, inline=True)
-    embed.add_field(name="Participants", value=f"{len(tournament.participants)}/40", inline=True)
-    embed.add_field(name="Teams", value=len(tournament.teams), inline=True)
-    
-    if tournament.winner:
-        embed.add_field(name="Winner", value=f"🎉 **{tournament.winner.name}**", inline=False)
-    
-    # If in registration phase, show recent participants
-    if tournament.phase == TOURNAMENT_PHASE["REGISTRATION"] and tournament.participants:
-        recent_participants = tournament.participants[-5:]  # Show last 5 added
-        participants_list = []
-        
-        for p in recent_participants:
-            tier_emoji = get_tier_emoji(p[1])
-            participants_list.append(f"{tier_emoji} **{p[0]}** ({p[1]} - {p[2]} pts)")
-        
-        embed.add_field(
-            name="Recent Participants",
-            value="\n".join(participants_list),
-            inline=False
-        )
-    
-    embed.set_footer(text=f"Created at: {tournament.created_at.strftime('%Y-%m-%d %H:%M')}")
-    await ctx.send(embed=embed)
-
-@tournament.command(name='help')
-async def tournament_help(ctx):
-    """Shows help for tournament commands."""
-    embed = discord.Embed(
-        title="🏆 Tournament Commands Help",
-        description="Manage tournaments with the following commands:",
-        color=TEAL_COLOR
-    )
-    
-    commands = [
-        ("`!lf tournament create [name]`", "Create a new tournament and set it as active"),
-        ("`!lf tournament add [name] [rank]`", "Add a player to the active tournament"),
-        ("`!lf tournament remove [name]`", "Remove a player from the active tournament"),
-        ("`!lf tournament generate`", "Generate balanced teams and bracket for the active tournament"),
-        ("`!lf tournament teams`", "Show all teams in the active tournament"),
-        ("`!lf tournament matches`", "Show all matches in the active tournament"),
-        ("`!lf tournament match [match_id]`", "Show details for a specific match"),
-        ("`!lf tournament update [match_id]`", "Update the result of a match"),
-        ("`!lf tournament clear`", "Clear the active tournament"),
-        ("`!lf tournament active [tournament_id]`", "Set the active tournament"),
-        ("`!lf tournament list`", "List all tournaments"),
-        ("`!lf tournament info`", "Show information about the active tournament"),
-        ("`!lf tournament help`", "Show this help message")
-    ]
-    
-    for cmd, desc in commands:
-        embed.add_field(name=cmd, value=desc, inline=False)
-    
-    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
-    await ctx.send(embed=embed)
 
 # Run the bot
 bot.run(DISCORD_TOKEN)
