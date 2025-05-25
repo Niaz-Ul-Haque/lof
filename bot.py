@@ -9,6 +9,8 @@ import random
 import asyncio
 import string
 from datetime import datetime
+import json
+
 from supabase import create_client, Client
 
 load_dotenv()
@@ -418,6 +420,15 @@ async def merge_player_accounts(old_player, new_player):
         print(f"Error merging players: {e}")
         return False, f"Error merging players: {str(e)}"
 
+def get_display_name(player_data):
+    """Helper function to get the correct display name for a player."""
+    display_name = player_data.get('display_name')
+    # Handle both None and "None" string cases
+    if not display_name or display_name == "None" or display_name.strip() == "":
+        return player_data.get('discord_username', 'Unknown')
+    return display_name
+
+
 async def get_daily_server_stats():
     """Get server statistics for today."""
     try:
@@ -504,21 +515,39 @@ async def get_most_played_with(player_name):
         teammate_counts = {}
         
         for match in all_matches.data:
+            # Parse team players - they might be stored as JSON strings
             team1_players = match.get('team1_players', [])
             team2_players = match.get('team2_players', [])
             
+            # If they're strings, parse them as JSON
+            if isinstance(team1_players, str):
+                try:
+                    team1_players = json.loads(team1_players)
+                except json.JSONDecodeError:
+                    team1_players = []
+            
+            if isinstance(team2_players, str):
+                try:
+                    team2_players = json.loads(team2_players)
+                except json.JSONDecodeError:
+                    team2_players = []
+            
+            # Ensure they're lists and filter out None values
+            team1_players = [p for p in (team1_players or []) if p is not None and str(p).strip()]
+            team2_players = [p for p in (team2_players or []) if p is not None and str(p).strip()]
+            
             # Find which team the player was on
             player_team = None
-            if any(p.lower() == player_name.lower() for p in team1_players):
+            if any(str(p).lower() == str(player_name).lower() for p in team1_players):
                 player_team = team1_players
-            elif any(p.lower() == player_name.lower() for p in team2_players):
+            elif any(str(p).lower() == str(player_name).lower() for p in team2_players):
                 player_team = team2_players
             
             if player_team:
                 # Count all other players on the same team as teammates
                 for teammate in player_team:
-                    if teammate.lower() != player_name.lower():
-                        teammate_counts[teammate] = teammate_counts.get(teammate, 0) + 1
+                    if teammate and str(teammate).lower() != str(player_name).lower():
+                        teammate_counts[str(teammate)] = teammate_counts.get(str(teammate), 0) + 1
         
         # Sort by count and return top 10
         sorted_teammates = sorted(teammate_counts.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -527,7 +556,6 @@ async def get_most_played_with(player_name):
     except Exception as e:
         print(f"Error getting most played with: {e}")
         return [], False
-        
 # ========================= Permission Check =========================
 
 async def check_moderator_permission(ctx):
@@ -1038,7 +1066,9 @@ async def auto_leaderboard():
                         recent_form = player.get('recent_form', '')
                         form_display = f" [{recent_form}]" if recent_form else ""
                         
-                        display_name = player.get('display_name', player['discord_username'])
+                        # Use the helper function to get display name
+                        display_name = get_display_name(player)
+                        
                         leaderboard_lines.append(
                             f"{position} **{display_name}** - {player['total_matches']} games\n"
                             f"    ↳ {player['wins']}W-{player['losses']}L ({player['win_rate']}% {wr_emoji}){form_display}"
@@ -1520,7 +1550,9 @@ async def show_stats(ctx, *, player_name=None):
         await ctx.send(f"❌ No statistics found for **{player_name}**. They haven't played any tracked matches yet.")
         return
     
-    display_name = stats.get('display_name', stats['discord_username'])
+    # Use the helper function to get display name
+    display_name = get_display_name(stats)
+    
     embed = discord.Embed(
         title=f"📊 Player Statistics: {display_name}",
         color=PURPLE_COLOR
@@ -1638,7 +1670,9 @@ async def show_all_players(ctx):
             else:
                 wr_emoji = "📉"
             
-            display_name = player.get('display_name', player['discord_username'])
+            # Use the helper function to get display name
+            display_name = get_display_name(player)
+            
             recent_form = player.get('recent_form', '')
             form_display = f" [{recent_form}]" if recent_form else ""
             
@@ -1800,7 +1834,8 @@ async def show_leaderboard(ctx, leaderboard_type='matches'):
         recent_form = player.get('recent_form', '')
         form_display = f" [{recent_form}]" if recent_form else ""
         
-        display_name = player.get('display_name', player['discord_username'])
+        # Use the helper function to get display name
+        display_name = get_display_name(player)
         
         # Different display based on leaderboard type
         if order_by == 'total_matches':
@@ -1838,7 +1873,6 @@ async def show_leaderboard(ctx, leaderboard_type='matches'):
     
     embed.set_footer(text=f"Use !lf stats [player] for detailed stats | {WEBSITE_URL}")
     await ctx.send(embed=embed)
-
 @bot.command(name='merge')
 async def merge_players(ctx, old_player=None, new_player=None):
     """Merge two player accounts. Usage: !lf merge [old_player] [new_player]"""
