@@ -1992,6 +1992,60 @@ async def show_teammates(ctx, *, player_name=None):
     await ctx.send(embed=embed)
 
 
+def convert_hashtag_to_dash(name):
+    """Convert hashtag format to OP.GG dash format (e.g., 4444#He11 -> 4444-he11)."""
+    if '#' in name:
+        parts = name.split('#', 1)  # Split on first hashtag only
+        if len(parts) == 2:
+            base_name = parts[0].strip()
+            hashtag_part = parts[1].strip().lower()  # Convert hashtag to lowercase
+            return f"{base_name}-{hashtag_part}"
+    return name
+
+def parse_summoner_names(text):
+    """Parse summoner names from text, handling quotes and hashtags."""
+    names = []
+    current_name = ""
+    in_quotes = False
+    i = 0
+    
+    while i < len(text):
+        char = text[i]
+        
+        if char == '"' and not in_quotes:
+            # Start of quoted name
+            in_quotes = True
+        elif char == '"' and in_quotes:
+            # End of quoted name
+            in_quotes = False
+            if current_name.strip():
+                # Convert hashtag to dash format for OP.GG
+                clean_name = convert_hashtag_to_dash(current_name.strip())
+                if clean_name:
+                    names.append(clean_name)
+            current_name = ""
+        elif char == ' ' and not in_quotes:
+            # Space outside quotes - end of current name
+            if current_name.strip():
+                # Convert hashtag to dash format for OP.GG
+                clean_name = convert_hashtag_to_dash(current_name.strip())
+                if clean_name:
+                    names.append(clean_name)
+            current_name = ""
+        else:
+            # Regular character
+            current_name += char
+        
+        i += 1
+    
+    # Handle last name if any
+    if current_name.strip():
+        clean_name = convert_hashtag_to_dash(current_name.strip())
+        if clean_name:
+            names.append(clean_name)
+    
+    return names
+
 def parse_server_and_names(input_text):
     """Parse server and summoner names from input text, handling quotes and hashtags."""
     if not input_text:
@@ -2017,52 +2071,6 @@ def parse_server_and_names(input_text):
         names = parse_summoner_names(input_text)
         return 'na', names
 
-def parse_summoner_names(text):
-    """Parse summoner names from text, handling quotes and hashtags."""
-    names = []
-    current_name = ""
-    in_quotes = False
-    i = 0
-    
-    while i < len(text):
-        char = text[i]
-        
-        if char == '"' and not in_quotes:
-            # Start of quoted name
-            in_quotes = True
-        elif char == '"' and in_quotes:
-            # End of quoted name
-            in_quotes = False
-            if current_name.strip():
-                # Remove hashtag portion if present (keep only the name part)
-                clean_name = current_name.split('#')[0].strip()
-                if clean_name:
-                    names.append(clean_name)
-            current_name = ""
-        elif char == ' ' and not in_quotes:
-            # Space outside quotes - end of current name
-            if current_name.strip():
-                # Remove hashtag portion if present
-                clean_name = current_name.split('#')[0].strip()
-                if clean_name:
-                    names.append(clean_name)
-            current_name = ""
-        else:
-            # Regular character
-            current_name += char
-        
-        i += 1
-    
-    # Handle last name if any
-    if current_name.strip():
-        clean_name = current_name.split('#')[0].strip()
-        if clean_name:
-            names.append(clean_name)
-    
-    return names
-
-# ========================= Riot Stats Commands =========================
-
 @bot.command(name='riot')
 async def riot_stats(ctx, *, input_text=None):
     """Show OP.GG stats for League players. Usage: !lf riot [names...] or !lf riot SERVER=KR [names...]"""
@@ -2072,13 +2080,13 @@ async def riot_stats(ctx, *, input_text=None):
                       f"**Examples:**\n"
                       f"• `!lf riot Faker`\n"
                       f"• `!lf riot \"TSM Bjergsen\"`\n"
-                      f"• `!lf riot Faker#KR1` (hashtag will be removed)\n"
+                      f"• `!lf riot 4444#He11` (becomes 4444-he11)\n"
                       f"• `!lf riot SERVER=KR Faker`\n"
                       f"• `!lf riot SERVER=EUW Caps Perkz \"G2 Jankos\"`\n"
                       f"• `!lf riot SERVER=NA \"TSM Bjergsen#NA1\" \"C9 Blaber\"`\n\n"
                       f"**📝 Name Format Tips:**\n"
                       f"• Use quotes for names with spaces: `\"TSM Bjergsen\"`\n"
-                      f"• Hashtags are automatically removed: `Faker#KR1` → `Faker`\n"
+                      f"• Hashtags become dashes: `4444#He11` → `4444-he11`\n"
                       f"• Mix quoted and unquoted names: `Faker \"TSM Bjergsen\" Caps`\n\n"
                       f"**Available servers:** {server_list}")
         return
@@ -2093,7 +2101,9 @@ async def riot_stats(ctx, *, input_text=None):
     if len(summoner_names) == 1:
         # Single player lookup
         summoner_name = summoner_names[0]
-        encoded_name = urllib.parse.quote(summoner_name.replace(" ", ""))
+        # Remove spaces but keep dashes from hashtag conversion
+        clean_name = summoner_name.replace(" ", "")
+        encoded_name = urllib.parse.quote(clean_name)
         opgg_url = f"https://{server}.op.gg/summoners/{server}/{encoded_name}"
         
         embed = discord.Embed(
@@ -2134,7 +2144,7 @@ async def riot_stats(ctx, *, input_text=None):
             await ctx.send("❌ Maximum 10 players allowed for multi-search.")
             return
         
-        # Clean and encode summoner names
+        # Clean and encode summoner names - remove spaces but keep dashes from hashtag conversion
         clean_names = [name.replace(" ", "") for name in summoner_names]
         encoded_names = [urllib.parse.quote(name) for name in clean_names]
         
@@ -2197,9 +2207,9 @@ async def riot_meta(ctx, server='NA'):
         color=GREEN_COLOR
     )
     
-    # Meta links
-    champions_url = f"https://{server_code}.op.gg/champions"
-    statistics_url = f"https://{server_code}.op.gg/statistics/champions"
+    # Meta links - OP.GG uses region parameter format
+    champions_url = f"https://op.gg/lol/champions?region={server_code}"
+    statistics_url = f"https://op.gg/lol/statistics/champions?region={server_code}"
     
     embed.add_field(
         name="🏆 Champion Tier List",
@@ -2227,7 +2237,7 @@ async def riot_meta(ctx, server='NA'):
     
     embed.set_footer(text=f"Meta data powered by OP.GG | {WEBSITE_URL}")
     await ctx.send(embed=embed)
-
+    
 @bot.command(name='riot-patch')
 async def riot_patch(ctx):
     """Show current patch notes and updates."""
