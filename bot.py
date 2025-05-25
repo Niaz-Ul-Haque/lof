@@ -484,7 +484,12 @@ async def create_balanced_teams(players):
     embed.add_field(name="⚖️ Balance Info", value=f"Point Difference: **{best_diff:.1f}** points", inline=False)
 
     if success and match_id:
-        embed.set_footer(text=f"Match ID: {match_id} | Visit {WEBSITE_URL} for more features!")
+        embed.add_field(
+            name="🎮 **MATCH ID**", 
+            value=f"**`{match_id}`**\n*Moderators: Use this ID to update results*", 
+            inline=False
+        )
+        embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
     else:
         embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
 
