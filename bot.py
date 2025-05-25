@@ -10,6 +10,8 @@ import asyncio
 import string
 from datetime import datetime
 import json
+import urllib.parse
+import re
 
 from supabase import create_client, Client
 
@@ -83,6 +85,26 @@ TEAM_NAMES = [
     "Autotune's cousin", "RIP Solace", "Silent is _____", "Wuss Squad", "Dried peen",
     "My name is Ross", "Masala Party", "Chinese Tariffs", "Shaved bootyhole", "We are racist",
 ]
+
+# Server mapping for OP.GG regions
+OPGG_SERVERS = {
+    'NA': 'na',
+    'EUW': 'euw',
+    'EUNE': 'eune', 
+    'KR': 'kr',
+    'JP': 'jp',
+    'OCE': 'oce',
+    'BR': 'br',
+    'LAS': 'las',
+    'LAN': 'lan',
+    'RU': 'ru',
+    'TR': 'tr',
+    'SEA': 'sg',  # Singapore for SEA
+    'TH': 'th',
+    'TW': 'tw',
+    'VN': 'vn',
+    'PH': 'ph'
+}
 
 # Color constants for better UI
 BLUE_COLOR = 0x3498DB
@@ -1967,6 +1989,335 @@ async def show_teammates(ctx, *, player_name=None):
         )
     
     embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+    await ctx.send(embed=embed)
+
+
+def parse_server_and_names(input_text):
+    """Parse server and summoner names from input text, handling quotes and hashtags."""
+    if not input_text:
+        return 'na', []
+    
+    # Check for SERVER= syntax
+    server_match = re.match(r'SERVER=(\w+)\s+(.+)', input_text.strip())
+    if server_match:
+        server_code = server_match.group(1).upper()
+        names_text = server_match.group(2)
+        
+        # Validate server
+        if server_code in OPGG_SERVERS:
+            server = OPGG_SERVERS[server_code]
+            names = parse_summoner_names(names_text)
+            return server, names
+        else:
+            # Invalid server, treat whole thing as names
+            names = parse_summoner_names(input_text)
+            return 'na', names
+    else:
+        # No server specified, use NA as default
+        names = parse_summoner_names(input_text)
+        return 'na', names
+
+def parse_summoner_names(text):
+    """Parse summoner names from text, handling quotes and hashtags."""
+    names = []
+    current_name = ""
+    in_quotes = False
+    i = 0
+    
+    while i < len(text):
+        char = text[i]
+        
+        if char == '"' and not in_quotes:
+            # Start of quoted name
+            in_quotes = True
+        elif char == '"' and in_quotes:
+            # End of quoted name
+            in_quotes = False
+            if current_name.strip():
+                # Remove hashtag portion if present (keep only the name part)
+                clean_name = current_name.split('#')[0].strip()
+                if clean_name:
+                    names.append(clean_name)
+            current_name = ""
+        elif char == ' ' and not in_quotes:
+            # Space outside quotes - end of current name
+            if current_name.strip():
+                # Remove hashtag portion if present
+                clean_name = current_name.split('#')[0].strip()
+                if clean_name:
+                    names.append(clean_name)
+            current_name = ""
+        else:
+            # Regular character
+            current_name += char
+        
+        i += 1
+    
+    # Handle last name if any
+    if current_name.strip():
+        clean_name = current_name.split('#')[0].strip()
+        if clean_name:
+            names.append(clean_name)
+    
+    return names
+
+# ========================= Riot Stats Commands =========================
+
+@bot.command(name='riot')
+async def riot_stats(ctx, *, input_text=None):
+    """Show OP.GG stats for League players. Usage: !lf riot [names...] or !lf riot SERVER=KR [names...]"""
+    if not input_text:
+        server_list = ", ".join(OPGG_SERVERS.keys())
+        await ctx.send(f"❌ Usage: `!lf riot [summoner_name]` or `!lf riot SERVER=KR [summoner_name]`\n"
+                      f"**Examples:**\n"
+                      f"• `!lf riot Faker`\n"
+                      f"• `!lf riot \"TSM Bjergsen\"`\n"
+                      f"• `!lf riot Faker#KR1` (hashtag will be removed)\n"
+                      f"• `!lf riot SERVER=KR Faker`\n"
+                      f"• `!lf riot SERVER=EUW Caps Perkz \"G2 Jankos\"`\n"
+                      f"• `!lf riot SERVER=NA \"TSM Bjergsen#NA1\" \"C9 Blaber\"`\n\n"
+                      f"**📝 Name Format Tips:**\n"
+                      f"• Use quotes for names with spaces: `\"TSM Bjergsen\"`\n"
+                      f"• Hashtags are automatically removed: `Faker#KR1` → `Faker`\n"
+                      f"• Mix quoted and unquoted names: `Faker \"TSM Bjergsen\" Caps`\n\n"
+                      f"**Available servers:** {server_list}")
+        return
+    
+    server, summoner_names = parse_server_and_names(input_text)
+    
+    if not summoner_names:
+        await ctx.send("❌ No summoner names provided.")
+        return
+    
+    # Handle single vs multiple players
+    if len(summoner_names) == 1:
+        # Single player lookup
+        summoner_name = summoner_names[0]
+        encoded_name = urllib.parse.quote(summoner_name.replace(" ", ""))
+        opgg_url = f"https://{server}.op.gg/summoners/{server}/{encoded_name}"
+        
+        embed = discord.Embed(
+            title=f"📊 League Stats: {summoner_name}",
+            description=f"Click the link below to view detailed stats on OP.GG",
+            color=BLUE_COLOR
+        )
+        
+        embed.add_field(
+            name="🔗 OP.GG Profile",
+            value=f"[View {summoner_name}'s Stats]({opgg_url})",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📈 What you'll find:",
+            value="• Rank & LP\n• Recent match history\n• Champion statistics\n• Win rates & KDA",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🎮 Recent Games:",
+            value="• Last 20 matches\n• Performance trends\n• Champion performance\n• Build analysis",
+            inline=True
+        )
+        
+        # Show server info
+        server_display = next((k for k, v in OPGG_SERVERS.items() if v == server), server.upper())
+        embed.add_field(
+            name="🌍 Server:",
+            value=f"**{server_display}**",
+            inline=True
+        )
+        
+    else:
+        # Multiple players lookup
+        if len(summoner_names) > 10:
+            await ctx.send("❌ Maximum 10 players allowed for multi-search.")
+            return
+        
+        # Clean and encode summoner names
+        clean_names = [name.replace(" ", "") for name in summoner_names]
+        encoded_names = [urllib.parse.quote(name) for name in clean_names]
+        
+        # Create OP.GG multi-search URL
+        names_param = ",".join(encoded_names)
+        opgg_url = f"https://{server}.op.gg/multisearch/{server}?summoners={names_param}"
+        
+        embed = discord.Embed(
+            title=f"📊 Multi-Player Stats Lookup",
+            description=f"Comparing {len(summoner_names)} players on OP.GG",
+            color=PURPLE_COLOR
+        )
+        
+        # Display the players being searched
+        player_list = "\n".join([f"• **{name}**" for name in summoner_names])
+        embed.add_field(
+            name=f"🎮 Players ({len(summoner_names)})",
+            value=player_list,
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📈 Multi-Search Features:",
+            value="• Side-by-side comparison\n• Rank comparison\n• Recent performance\n• Head-to-head analysis",
+            inline=True
+        )
+        
+        # Show server info
+        server_display = next((k for k, v in OPGG_SERVERS.items() if v == server), server.upper())
+        embed.add_field(
+            name="🌍 Server:",
+            value=f"**{server_display}**",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔗 View Comparison",
+            value=f"[Compare All Players on OP.GG]({opgg_url})",
+            inline=False
+        )
+    
+    embed.set_footer(text=f"Stats powered by OP.GG | {WEBSITE_URL}")
+    await ctx.send(embed=embed)
+
+@bot.command(name='riot-meta')
+async def riot_meta(ctx, server='NA'):
+    """Show current meta information from OP.GG. Usage: !lf riot-meta [server]"""
+    server = server.upper()
+    
+    if server not in OPGG_SERVERS:
+        server_list = ", ".join(OPGG_SERVERS.keys())
+        await ctx.send(f"❌ Invalid server. Available servers: {server_list}")
+        return
+    
+    server_code = OPGG_SERVERS[server]
+    
+    embed = discord.Embed(
+        title=f"📊 League Meta Information - {server}",
+        description="Current patch meta, tier lists, and analytics",
+        color=GREEN_COLOR
+    )
+    
+    # Meta links
+    champions_url = f"https://{server_code}.op.gg/champions"
+    statistics_url = f"https://{server_code}.op.gg/statistics/champions"
+    
+    embed.add_field(
+        name="🏆 Champion Tier List",
+        value=f"[View Current Tier List]({champions_url})\n*Win rates, pick rates, ban rates by role*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📈 Champion Statistics",
+        value=f"[Detailed Champion Analytics]({statistics_url})\n*Performance trends, builds, runes*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🎮 What you'll find:",
+        value="• Current patch tier lists\n• Champion win/pick/ban rates\n• Role-specific meta\n• Build recommendations\n• Rune optimization",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📊 Analytics Available:",
+        value="• Performance by rank\n• Regional differences\n• Patch trends\n• Pro play influence\n• Counter matchups",
+        inline=True
+    )
+    
+    embed.set_footer(text=f"Meta data powered by OP.GG | {WEBSITE_URL}")
+    await ctx.send(embed=embed)
+
+@bot.command(name='riot-patch')
+async def riot_patch(ctx):
+    """Show current patch notes and updates."""
+    
+    embed = discord.Embed(
+        title="🔄 League of Legends Patch Information",
+        description="Latest patch notes and game updates",
+        color=ORANGE_COLOR
+    )
+    
+    # OP.GG doesn't host patch notes, but we can link to official sources
+    patch_notes_url = "https://www.leagueoflegends.com/en-us/news/tags/patch-notes/"
+    surrender_url = "https://www.surrenderat20.net/"
+    opgg_news_url = "https://op.gg/news"
+    
+    embed.add_field(
+        name="📋 Official Patch Notes",
+        value=f"[Riot Games Patch Notes]({patch_notes_url})\n*Official champion changes, item updates, bug fixes*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📰 Surrender@20",
+        value=f"[PBE Updates & News]({surrender_url})\n*Early patch previews, upcoming changes*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📊 OP.GG News",
+        value=f"[Meta Impact Analysis]({opgg_news_url})\n*How patches affect the meta and statistics*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🎯 Patch Impact:",
+        value="• Champion balance changes\n• Item adjustments\n• New features\n• Bug fixes\n• Meta shifts",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📈 Track Changes:",
+        value="• Win rate impacts\n• Pick/ban shifts\n• Build adaptations\n• Role meta changes\n• Pro play effects",
+        inline=True
+    )
+    
+    embed.set_footer(text=f"Patch info from official sources | {WEBSITE_URL}")
+    await ctx.send(embed=embed)
+
+@bot.command(name='riot-esports')
+async def riot_esports(ctx, region='WORLD'):
+    """Show esports/pro match information. Usage: !lf riot-esports [region]"""
+    
+    region = region.upper()
+    valid_regions = ['WORLD', 'LCS', 'LEC', 'LCK', 'LPL', 'MSI', 'WORLDS']
+    
+    embed = discord.Embed(
+        title=f"🏆 League Esports - {region}",
+        description="Professional League of Legends matches and tournaments",
+        color=RED_COLOR
+    )
+    
+    # Esports links
+    lolesports_url = "https://lolesports.com/"
+    opgg_esports_url = "https://op.gg/esports"
+    
+    embed.add_field(
+        name="🎮 Official Esports",
+        value=f"[LoL Esports Hub]({lolesports_url})\n*Official matches, schedules, standings*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📊 Esports Analytics",
+        value=f"[OP.GG Esports Stats]({opgg_esports_url})\n*Pro player stats, team performance, meta analysis*",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🏟️ Available Leagues:",
+        value="• **LCS** (North America)\n• **LEC** (Europe)\n• **LCK** (Korea)\n• **LPL** (China)\n• **MSI** (Mid-Season)\n• **WORLDS** (World Championship)",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📈 Pro Analytics:",
+        value="• Player performance\n• Team statistics\n• Champion priority\n• Draft analysis\n• Tournament results",
+        inline=True
+    )
+    
+    embed.set_footer(text=f"Esports data from official sources | {WEBSITE_URL}")
     await ctx.send(embed=embed)
 
 
