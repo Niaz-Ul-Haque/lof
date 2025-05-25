@@ -133,6 +133,10 @@ async def update_match_result(match_id, winner_team, moderator_name):
         
         match = match_result.data[0]
         
+        # Check if this is the first time setting a result or editing an existing one
+        is_first_result = match['winner'] is None
+        previous_winner = match['winner']
+        
         # Update match result
         update_data = {
             'winner': winner_team,
@@ -141,22 +145,67 @@ async def update_match_result(match_id, winner_team, moderator_name):
         }
         supabase.table('matches').update(update_data).eq('match_id', match_id).execute()
         
-        # Update player stats
-        winning_players = match['team1_players'] if winner_team == 'team1' else match['team2_players']
-        losing_players = match['team2_players'] if winner_team == 'team1' else match['team1_players']
-        
-        # Update winners
-        for player in winning_players:
-            await update_player_stats(player, True)
-        
-        # Update losers
-        for player in losing_players:
-            await update_player_stats(player, False)
+        if is_first_result:
+            # First time setting result - add wins/losses normally
+            winning_players = match['team1_players'] if winner_team == 'team1' else match['team2_players']
+            losing_players = match['team2_players'] if winner_team == 'team1' else match['team1_players']
+            
+            # Update winners
+            for player in winning_players:
+                await update_player_stats(player, True)
+            
+            # Update losers
+            for player in losing_players:
+                await update_player_stats(player, False)
+        else:
+            # Editing existing result - we need to reverse previous result and apply new one
+            # Get players from previous result
+            previous_winning_players = match['team1_players'] if previous_winner == 'team1' else match['team2_players']
+            previous_losing_players = match['team2_players'] if previous_winner == 'team1' else match['team1_players']
+            
+            # Reverse previous result (subtract previous wins/losses)
+            for player in previous_winning_players:
+                await reverse_player_stats(player, True)
+            for player in previous_losing_players:
+                await reverse_player_stats(player, False)
+            
+            # Apply new result
+            new_winning_players = match['team1_players'] if winner_team == 'team1' else match['team2_players']
+            new_losing_players = match['team2_players'] if winner_team == 'team1' else match['team1_players']
+            
+            for player in new_winning_players:
+                await update_player_stats(player, True)
+            for player in new_losing_players:
+                await update_player_stats(player, False)
         
         return True, "Match result updated successfully"
     except Exception as e:
         print(f"Error updating match result: {e}")
         return False, f"Error updating match: {str(e)}"
+
+async def reverse_player_stats(player_name, was_winner):
+    """Reverse player statistics (used when editing match results)."""
+    try:
+        # Get existing stats
+        result = supabase.table('player_stats').select('*').eq('discord_username', player_name).execute()
+        
+        if result.data:
+            current_stats = result.data[0]
+            # Subtract the previous result
+            new_total = max(0, current_stats['total_matches'] - 1)
+            new_wins = max(0, current_stats['wins'] - (1 if was_winner else 0))
+            new_losses = max(0, current_stats['losses'] - (0 if was_winner else 1))
+            new_win_rate = (new_wins / new_total * 100) if new_total > 0 else 0
+            
+            update_data = {
+                'total_matches': new_total,
+                'wins': new_wins,
+                'losses': new_losses,
+                'win_rate': round(new_win_rate, 2)
+            }
+            supabase.table('player_stats').update(update_data).eq('discord_username', player_name).execute()
+    except Exception as e:
+        print(f"Error reversing player stats for {player_name}: {e}")
 
 async def update_player_stats(player_name, won):
     """Update individual player statistics."""
