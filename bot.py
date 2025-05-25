@@ -2118,6 +2118,7 @@ def parse_server_and_names(input_text, for_multi_search=False):
             names = parse_summoner_names(input_text)
         return 'na', names
 
+@bot.command(name='riot')
 async def riot_stats(ctx, *, input_text=None):
     """Show OP.GG stats for League players. Usage: !lf riot [names...] or !lf riot SERVER=KR [names...]"""
     if not input_text:
@@ -2153,8 +2154,8 @@ async def riot_stats(ctx, *, input_text=None):
         clean_names = [name.replace(" ", "") for name in summoner_names]
         encoded_names = [urllib.parse.quote(name) for name in clean_names]
         
-        # Create OP.GG multi-search URL
-        names_param = ",".join(encoded_names)
+        # Create OP.GG multi-search URL with properly encoded commas
+        names_param = "%2C".join(encoded_names)
         opgg_url = f"https://{server}.op.gg/multisearch/{server}?summoners={names_param}"
         
         embed = discord.Embed(
@@ -2242,7 +2243,7 @@ async def riot_stats(ctx, *, input_text=None):
         
         embed.set_footer(text=f"Stats powered by OP.GG | {WEBSITE_URL}")
         await ctx.send(embed=embed)
-        
+
 @bot.command(name='riot-meta')
 async def riot_meta(ctx, server='NA'):
     """Show current meta information from OP.GG. Usage: !lf riot-meta [server]"""
@@ -2383,7 +2384,6 @@ async def riot_esports(ctx, region='WORLD'):
     
     embed.set_footer(text=f"Esports data from official sources | {WEBSITE_URL}")
     await ctx.send(embed=embed)
-
 
 # Run the bot
 bot.run(DISCORD_TOKEN)
