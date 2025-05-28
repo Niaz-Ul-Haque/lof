@@ -123,7 +123,7 @@ def generate_match_id():
     """Generate a unique 6-character match ID."""
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
-async def create_match(team1_name, team1_players, team2_name, team2_players, team1_user_ids=None, team2_user_ids=None):
+async def create_match(team1_name, team1_players, team2_name, team2_players):
     """Create a new match in the database."""
     try:
         match_id = generate_match_id()
@@ -141,8 +141,6 @@ async def create_match(team1_name, team1_players, team2_name, team2_players, tea
             'team2_name': team2_name,
             'team1_players': team1_players,
             'team2_players': team2_players,
-            'team1_user_ids': team1_user_ids or [],
-            'team2_user_ids': team2_user_ids or [],
             'winner': None,
             'created_at': datetime.now().isoformat(),
             'updated_by': None
@@ -176,64 +174,51 @@ async def update_match_result(match_id, winner_team, moderator_name):
         }
         supabase.table('matches').update(update_data).eq('match_id', match_id).execute()
         
+        # Parse team players (they're stored as JSON strings)
+        team1_players = json.loads(match['team1_players']) if isinstance(match['team1_players'], str) else match['team1_players']
+        team2_players = json.loads(match['team2_players']) if isinstance(match['team2_players'], str) else match['team2_players']
+        
         if is_first_result:
             # First time setting result - add wins/losses normally
-            winning_players = match['team1_players'] if winner_team == 'team1' else match['team2_players']
-            losing_players = match['team2_players'] if winner_team == 'team1' else match['team1_players']
-            winning_user_ids = match.get('team1_user_ids', []) if winner_team == 'team1' else match.get('team2_user_ids', [])
-            losing_user_ids = match.get('team2_user_ids', []) if winner_team == 'team1' else match.get('team1_user_ids', [])
+            winning_players = team1_players if winner_team == 'team1' else team2_players
+            losing_players = team2_players if winner_team == 'team1' else team1_players
             
             # Update winners
-            for i, player in enumerate(winning_players):
-                user_id = winning_user_ids[i] if i < len(winning_user_ids) else None
-                await update_player_stats(player, True, user_id)
+            for player in winning_players:
+                await update_player_stats(player, True)
             
             # Update losers
-            for i, player in enumerate(losing_players):
-                user_id = losing_user_ids[i] if i < len(losing_user_ids) else None
-                await update_player_stats(player, False, user_id)
+            for player in losing_players:
+                await update_player_stats(player, False)
         else:
             # Editing existing result - we need to reverse previous result and apply new one
             # Get players from previous result
-            previous_winning_players = match['team1_players'] if previous_winner == 'team1' else match['team2_players']
-            previous_losing_players = match['team2_players'] if previous_winner == 'team1' else match['team1_players']
-            previous_winning_user_ids = match.get('team1_user_ids', []) if previous_winner == 'team1' else match.get('team2_user_ids', [])
-            previous_losing_user_ids = match.get('team2_user_ids', []) if previous_winner == 'team1' else match.get('team1_user_ids', [])
+            previous_winning_players = team1_players if previous_winner == 'team1' else team2_players
+            previous_losing_players = team2_players if previous_winner == 'team1' else team1_players
             
             # Reverse previous result
-            for i, player in enumerate(previous_winning_players):
-                user_id = previous_winning_user_ids[i] if i < len(previous_winning_user_ids) else None
-                await reverse_player_stats(player, True, user_id)
-            for i, player in enumerate(previous_losing_players):
-                user_id = previous_losing_user_ids[i] if i < len(previous_losing_user_ids) else None
-                await reverse_player_stats(player, False, user_id)
+            for player in previous_winning_players:
+                await reverse_player_stats(player, True)
+            for player in previous_losing_players:
+                await reverse_player_stats(player, False)
             
             # Apply new result
-            new_winning_players = match['team1_players'] if winner_team == 'team1' else match['team2_players']
-            new_losing_players = match['team2_players'] if winner_team == 'team1' else match['team1_players']
-            new_winning_user_ids = match.get('team1_user_ids', []) if winner_team == 'team1' else match.get('team2_user_ids', [])
-            new_losing_user_ids = match.get('team2_user_ids', []) if winner_team == 'team1' else match.get('team1_user_ids', [])
+            new_winning_players = team1_players if winner_team == 'team1' else team2_players
+            new_losing_players = team2_players if winner_team == 'team1' else team1_players
             
-            for i, player in enumerate(new_winning_players):
-                user_id = new_winning_user_ids[i] if i < len(new_winning_user_ids) else None
-                await update_player_stats(player, True, user_id)
-            for i, player in enumerate(new_losing_players):
-                user_id = new_losing_user_ids[i] if i < len(new_losing_user_ids) else None
-                await update_player_stats(player, False, user_id)
+            for player in new_winning_players:
+                await update_player_stats(player, True)
+            for player in new_losing_players:
+                await update_player_stats(player, False)
         
         return True, "Match result updated successfully"
     except Exception as e:
         print(f"Error updating match result: {e}")
         return False, f"Error updating match: {str(e)}"
-
-async def reverse_player_stats(player_name, was_winner, user_id=None):
+async def reverse_player_stats(player_name, was_winner):
     """Reverse player statistics (used when editing match results)."""
     try:
-        # Try to find by user_id first, then by username
-        if user_id:
-            result = supabase.table('player_stats').select('*').eq('discord_user_id', user_id).execute()
-        else:
-            result = supabase.table('player_stats').select('*').eq('discord_username', player_name).execute()
+        result = supabase.table('player_stats').select('*').eq('discord_username', player_name).execute()
         
         if result.data:
             current_stats = result.data[0]
@@ -255,21 +240,14 @@ async def reverse_player_stats(player_name, was_winner, user_id=None):
                 'recent_form': new_recent_form
             }
             
-            if user_id:
-                supabase.table('player_stats').update(update_data).eq('discord_user_id', user_id).execute()
-            else:
-                supabase.table('player_stats').update(update_data).eq('discord_username', player_name).execute()
+            supabase.table('player_stats').update(update_data).eq('discord_username', player_name).execute()
     except Exception as e:
         print(f"Error reversing player stats for {player_name}: {e}")
-
-async def update_player_stats(player_name, won, user_id=None):
+async def update_player_stats(player_name, won):
     """Update individual player statistics."""
     try:
-        # Try to find by user_id first, then by username
-        if user_id:
-            result = supabase.table('player_stats').select('*').eq('discord_user_id', user_id).execute()
-        else:
-            result = supabase.table('player_stats').select('*').eq('discord_username', player_name).execute()
+        # Get existing player stats
+        result = supabase.table('player_stats').select('*').eq('discord_username', player_name).execute()
         
         if result.data:
             # Update existing player
@@ -316,18 +294,11 @@ async def update_player_stats(player_name, won, user_id=None):
                 'display_name': player_name
             }
             
-            if user_id:
-                update_data['discord_user_id'] = user_id
-            
-            if user_id:
-                supabase.table('player_stats').update(update_data).eq('discord_user_id', user_id).execute()
-            else:
-                supabase.table('player_stats').update(update_data).eq('discord_username', player_name).execute()
+            supabase.table('player_stats').update(update_data).eq('discord_username', player_name).execute()
         else:
             # Create new player
             new_stats = {
                 'discord_username': player_name,
-                'discord_user_id': user_id,
                 'display_name': player_name,
                 'total_matches': 1,
                 'wins': 1 if won else 0,
@@ -354,22 +325,16 @@ async def get_match_details(match_id):
         print(f"Error getting match details: {e}")
         return None, False
 
-async def get_player_stats(player_name_or_id):
-    """Get player statistics from database by name or user ID."""
+async def get_player_stats(player_name):
+    """Get player statistics from database by name only."""
     try:
-        # Try by user ID first if it's a number
-        if str(player_name_or_id).isdigit():
-            result = supabase.table('player_stats').select('*').eq('discord_user_id', int(player_name_or_id)).execute()
-            if result.data:
-                return result.data[0], True
-        
-        # Try by username
-        result = supabase.table('player_stats').select('*').eq('discord_username', player_name_or_id).execute()
+        # Try by username first
+        result = supabase.table('player_stats').select('*').eq('discord_username', player_name).execute()
         if result.data:
             return result.data[0], True
         
         # Try by display name
-        result = supabase.table('player_stats').select('*').eq('display_name', player_name_or_id).execute()
+        result = supabase.table('player_stats').select('*').eq('display_name', player_name).execute()
         if result.data:
             return result.data[0], True
         
@@ -787,9 +752,9 @@ class QueueView(View):
             )
             return
         
-        player_info = (name, found_rank, TIER_POINTS[found_rank], member.id)
+        player_info = (name, found_rank, TIER_POINTS[found_rank])  # Removed user_id
         player_pool.append(player_info)
-        
+
         if len(player_pool) == 1:
             queue_start_time = asyncio.get_event_loop().time()
             if queue_timer:
@@ -877,13 +842,11 @@ async def create_balanced_teams(players):
     team1_name = TEAM_NAMES[random_index1]
     team2_name = TEAM_NAMES[random_index2]
 
-    # Create match in database
+    # Create match in database (no user IDs)
     team1_players = [player[0] for player in best_team1]
     team2_players = [player[0] for player in best_team2]
-    team1_user_ids = [player[3] if len(player) > 3 else None for player in best_team1]
-    team2_user_ids = [player[3] if len(player) > 3 else None for player in best_team2]
     
-    match_id, success = await create_match(team1_name, team1_players, team2_name, team2_players, team1_user_ids, team2_user_ids)
+    match_id, success = await create_match(team1_name, team1_players, team2_name, team2_players)
     
     embed = discord.Embed(title="🏆 Balanced Teams (5v5)", color=PURPLE_COLOR)
     
@@ -1388,7 +1351,7 @@ async def join_queue(ctx, name=None, rank=None):
                 return
             
             del player_pool[player_idx]
-            player_info = (name, rank, TIER_POINTS[rank], ctx.author.id)
+            player_info = (name, rank, TIER_POINTS[rank])  # Removed user_id
             player_pool.append(player_info)
             
             embed, view = await display_queue(ctx)
@@ -1417,7 +1380,7 @@ async def join_queue(ctx, name=None, rank=None):
         
         rank = found_rank
     
-    player_info = (name, rank, TIER_POINTS[rank], ctx.author.id)
+    player_info = (name, rank, TIER_POINTS[rank])  # Removed user_id
     player_pool.append(player_info)
     
     if len(player_pool) == 1:
@@ -1437,7 +1400,7 @@ async def join_queue(ctx, name=None, rank=None):
         teams_embed, match_id = await create_balanced_teams(player_pool[:10])
         await ctx.send("🎮 **Queue is full! Creating balanced teams:**", embed=teams_embed)
         
-        # Post to results channel
+        # Post to results channel if it exists
         if match_id:
             await post_to_results_channel(ctx.guild, teams_embed, match_id)
         
@@ -1448,7 +1411,17 @@ async def join_queue(ctx, name=None, rank=None):
             queue_timer = asyncio.create_task(reset_queue_timer(ctx))
             remaining_embed, remaining_view = await display_queue(ctx)
             await ctx.send("**Players remaining in queue:**", embed=remaining_embed, view=remaining_view)
-
+        
+        lobby_embed = discord.Embed(
+            title="🎮 Custom Game Lobby", 
+            description="Click the button below to join the queue!",
+            color=BLUE_COLOR
+        )
+        lobby_embed.add_field(name="Queue Status", value=f"{len(player_pool)}/10 players")
+        lobby_embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+        
+        lobby_view = QueueView(ctx)
+        await ctx.message.edit(embed=lobby_embed, view=lobby_view)
 # ========================= Match Result Commands =========================
 
 
