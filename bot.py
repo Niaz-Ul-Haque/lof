@@ -119,12 +119,6 @@ WEBSITE_URL = "https://www.leagueofflex.com"
 
 # ========================= Database Functions =========================
 
-def check_voice_channel_requirement(user):
-    """Check if user is in a voice channel. Returns (is_in_voice, channel_name)"""
-    if user.voice and user.voice.channel:
-        return True, user.voice.channel.name
-    return False, None
-
 def generate_match_id():
     """Generate a unique 6-character match ID."""
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
@@ -736,27 +730,6 @@ class QueueView(View):
         """Handles join queue button click."""
         global player_pool, queue_timer, queue_start_time
         
-        is_in_voice, voice_channel_name = check_voice_channel_requirement(interaction.user)
-        if not is_in_voice:
-            embed = discord.Embed(
-                title="🔊 Voice Channel Required",
-                description="You must be in a voice channel to join the queue!",
-                color=RED_COLOR
-            )
-            embed.add_field(
-                name="📞 How to join:",
-                value="1. Click on any voice channel in the server\n2. Wait to connect\n3. Click the join button again",
-                inline=False
-            )
-            embed.add_field(
-                name="💡 Why this requirement?",
-                value="This ensures only active players who can communicate join the queue.",
-                inline=False
-            )
-            embed.set_footer(text="Join any voice channel - it doesn't matter which one!")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-        
         member = interaction.user
         name = member.display_name
         
@@ -779,7 +752,7 @@ class QueueView(View):
             )
             return
         
-        player_info = (name, found_rank, TIER_POINTS[found_rank])
+        player_info = (name, found_rank, TIER_POINTS[found_rank])  # Removed user_id
         player_pool.append(player_info)
 
         if len(player_pool) == 1:
@@ -789,7 +762,7 @@ class QueueView(View):
             queue_timer = asyncio.create_task(reset_queue_timer(self.ctx))
         
         embed, view = await display_queue(self.ctx)
-        await interaction.response.send_message(f"✅ **{name}** joined the queue as **{found_rank}** (Connected to: **{voice_channel_name}**).", embed=embed, view=view)
+        await interaction.response.send_message(f"✅ **{name}** joined the queue as **{found_rank}**.", embed=embed, view=view)
         
         if len(player_pool) >= 10:
             if queue_timer and not queue_timer.done():
@@ -842,7 +815,7 @@ class QueueView(View):
             await interaction.response.send_message(f"❌ **{name}** has left the queue.", embed=embed, view=view)
         else:
             await interaction.response.send_message(f"You're not currently in the queue, **{name}**.", ephemeral=True)
-            
+
 async def create_balanced_teams(players):
     """Create balanced 5v5 teams from a list of players and store in database."""
     best_diff = float('inf')
@@ -1297,17 +1270,16 @@ async def help_command(ctx):
         "   - Requires exactly 10 players with their ranks\n\n"
         "2. `!lf tiers`\n"
         "   - Shows all tier point values\n\n"
-        "3. `!lf join` 🔊 **VOICE CHANNEL REQUIRED**\n"
+        "3. `!lf join`\n"
         "   - Join the player queue using your Discord name and rank role\n"
-        "   - You can also use `!lf join [name] [rank]` to specify a different name or rank\n"
-        "   - **Must be connected to any voice channel to join**\n\n"
+        "   - You can also use `!lf join [name] [rank]` to specify a different name or rank\n\n"
         "4. `!lf leave`\n"
         "   - Leave the queue (use this to rejoin with correct rank if needed)\n\n"
         "5. `!lf queue`\n"
         "   - Shows the current queue status\n\n"
         "6. `!lf queueclear`\n"
         "   - Clears the current queue and cancels the timer\n\n"
-        "7. `!lf lobby` 🔊 **VOICE CHANNEL REQUIRED FOR JOINING**\n"
+        "7. `!lf lobby`\n"
         "   - Start a custom game lobby with join/leave buttons\n\n"
     )
     
@@ -1336,13 +1308,6 @@ async def help_command(ctx):
 
     embed.add_field(name="Commands", value=commands_text, inline=False)
     embed.add_field(name="More Commands", value=match_commands, inline=False)
-    
-    # Add voice channel requirement notice
-    embed.add_field(
-        name="🔊 Voice Channel Requirement",
-        value="**To join the queue, you must be connected to any voice channel in the server.**\nThis ensures only active players participate in matches.",
-        inline=False
-    )
 
     # Create a visual representation of the rank tiers with emojis
     ranks_info = ""
@@ -1359,37 +1324,15 @@ async def help_command(ctx):
     embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
 
     await ctx.send(embed=embed)
+
 @bot.command(name='join')
 async def join_queue(ctx, name=None, rank=None):
     """
     Allows a player to join the matchmaking queue.
     If no name is provided, uses the Discord username.
     If no rank is provided, attempts to detect from Discord roles.
-    REQUIRES: User must be in a voice channel.
     """
     global player_pool, queue_timer, queue_start_time
-    
-    # Check if user is in a voice channel
-    is_in_voice, voice_channel_name = check_voice_channel_requirement(ctx.author)
-    if not is_in_voice:
-        embed = discord.Embed(
-            title="🔊 Voice Channel Required",
-            description="You must be in a voice channel to join the queue!",
-            color=RED_COLOR
-        )
-        embed.add_field(
-            name="📞 How to join:",
-            value="1. Click on any voice channel in the server\n2. Wait to connect\n3. Try joining the queue again",
-            inline=False
-        )
-        embed.add_field(
-            name="💡 Why this requirement?",
-            value="This ensures only active players who can communicate join the queue.",
-            inline=False
-        )
-        embed.set_footer(text="Join any voice channel - it doesn't matter which one!")
-        await ctx.send(embed=embed)
-        return
     
     if name is None:
         name = ctx.author.display_name
@@ -1408,11 +1351,11 @@ async def join_queue(ctx, name=None, rank=None):
                 return
             
             del player_pool[player_idx]
-            player_info = (name, rank, TIER_POINTS[rank])
+            player_info = (name, rank, TIER_POINTS[rank])  # Removed user_id
             player_pool.append(player_info)
             
             embed, view = await display_queue(ctx)
-            await ctx.send(f"✅ Updated **{name}**'s rank to **{rank}** (Connected to: **{voice_channel_name}**).", embed=embed, view=view)
+            await ctx.send(f"✅ Updated **{name}**'s rank to **{rank}**.", embed=embed, view=view)
             return
         else:
             await ctx.send(f"**{name}** is already in the queue. To update your rank, use `!lf leave` first, then rejoin with the correct rank.")
@@ -1437,7 +1380,7 @@ async def join_queue(ctx, name=None, rank=None):
         
         rank = found_rank
     
-    player_info = (name, rank, TIER_POINTS[rank])
+    player_info = (name, rank, TIER_POINTS[rank])  # Removed user_id
     player_pool.append(player_info)
     
     if len(player_pool) == 1:
@@ -1447,7 +1390,7 @@ async def join_queue(ctx, name=None, rank=None):
         queue_timer = asyncio.create_task(reset_queue_timer(ctx))
     
     embed, view = await display_queue(ctx)
-    await ctx.send(f"✅ **{name}** joined the queue as **{rank}** (Connected to: **{voice_channel_name}**).", embed=embed, view=view)
+    await ctx.send(f"✅ **{name}** joined the queue as **{rank}**.", embed=embed, view=view)
 
     if len(player_pool) >= 10:
         if queue_timer and not queue_timer.done():
@@ -1479,7 +1422,6 @@ async def join_queue(ctx, name=None, rank=None):
         
         lobby_view = QueueView(ctx)
         await ctx.message.edit(embed=lobby_embed, view=lobby_view)
-
 # ========================= Match Result Commands =========================
 
 
