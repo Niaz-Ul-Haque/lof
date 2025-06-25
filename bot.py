@@ -543,6 +543,135 @@ async def get_most_played_with(player_name):
     except Exception as e:
         print(f"Error getting most played with: {e}")
         return [], False
+
+
+def calculate_recent_form_modifier(player_stats):
+    """Calculate recent form modifier based on last 5 games. Returns ±0.02 (±2%)"""
+    recent_form = player_stats.get('recent_form', '')
+    if not recent_form:
+        return 0
+    
+    recent_wins = recent_form.count('W')
+    recent_games = len(recent_form)
+    
+    if recent_games == 0:
+        return 0
+    
+    # Performance vs expected 50%
+    recent_performance = (recent_wins / recent_games) - 0.5
+    # Scale to ±2% max
+    return min(max(recent_performance * 0.04, -0.02), 0.02)
+
+def calculate_consistency_modifier(player_stats):
+    """Calculate consistency bonus based on performance stability. Returns ±0.01 (±1%)"""
+    recent_form = player_stats.get('recent_form', '')
+    if len(recent_form) < 3:
+        return 0
+    
+    # Count transitions (W to L or L to W)
+    transitions = 0
+    for i in range(1, len(recent_form)):
+        if recent_form[i] != recent_form[i-1]:
+            transitions += 1
+    
+    # Fewer transitions = more consistent
+    # Max transitions for 5 games = 4, min = 0
+    max_transitions = len(recent_form) - 1
+    if max_transitions == 0:
+        return 0.01  # Perfect consistency
+    
+    consistency_ratio = 1 - (transitions / max_transitions)
+    # Scale to 0% to +1% (no penalty for inconsistency, only bonus for consistency)
+    return consistency_ratio * 0.01
+
+def calculate_activity_modifier(player_stats):
+    """Calculate activity bonus for engaged players. Returns 0 to +0.01 (+1%)"""
+    total_matches = player_stats.get('total_matches', 0)
+    if total_matches >= 50:
+        return 0.01  # Full bonus for 50+ games
+    elif total_matches >= 30:
+        return 0.005  # Half bonus for 30+ games
+    else:
+        return 0  # No bonus below 30 games
+
+def calculate_streak_modifier(player_stats):
+    """Calculate current streak modifier. Returns ±0.01 (±1%)"""
+    current_streak = player_stats.get('current_streak', 0)
+    streak_type = player_stats.get('streak_type', '')
+    
+    if current_streak < 3:
+        return 0  # No modifier for streaks under 3
+    
+    # Scale streak impact (3 games = 0.3%, 10+ games = 1%)
+    streak_impact = min(current_streak / 10, 1.0) * 0.01
+    
+    if streak_type == 'WIN':
+        return streak_impact
+    elif streak_type == 'LOSS':
+        return -streak_impact * 0.5  # Loss streaks have less negative impact
+    else:
+        return 0
+
+def calculate_overall_rating(player_stats):
+    """
+    Calculate overall player rating using Bayesian Average (65%) + Fairness Modifiers (35%)
+    
+    Returns: Overall rating as percentage (0-100)
+    """
+    # Must have minimum games to be rated
+    if player_stats.get('total_matches', 0) < 20:
+        return None
+    
+    # Bayesian Average (65% weight)
+    # Prior: 10 wins out of 20 games (50% win rate assumption)
+    actual_wins = player_stats.get('wins', 0)
+    actual_games = player_stats.get('total_matches', 0)
+    
+    bayesian_win_rate = (actual_wins + 10) / (actual_games + 20)
+    
+    # Fairness Modifiers (35% weight when combined)
+    recent_modifier = calculate_recent_form_modifier(player_stats)      # ±2%
+    consistency_modifier = calculate_consistency_modifier(player_stats)  # 0 to +1%
+    activity_modifier = calculate_activity_modifier(player_stats)        # 0 to +1%  
+    streak_modifier = calculate_streak_modifier(player_stats)            # ±1%
+    
+    # Total fairness adjustment
+    total_fairness_adjustment = recent_modifier + consistency_modifier + activity_modifier + streak_modifier
+    
+    # Apply weights: 65% Bayesian base + 35% of fairness impact
+    overall_rating = bayesian_win_rate + (total_fairness_adjustment * 0.35)
+    
+    # Convert to percentage and clamp between 0-100
+    overall_percentage = min(max(overall_rating * 100, 0), 100)
+    
+    return round(overall_percentage, 2)
+
+async def get_overall_leaderboard(min_games=20):
+    """Get overall leaderboard with calculated ratings."""
+    try:
+        # Get all players with minimum games
+        players_data, found = await get_all_player_stats('total_matches')
+        
+        if not found:
+            return [], False
+        
+        # Filter and calculate overall ratings
+        rated_players = []
+        for player in players_data:
+            if player.get('total_matches', 0) >= min_games:
+                overall_rating = calculate_overall_rating(player)
+                if overall_rating is not None:
+                    player['overall_rating'] = overall_rating
+                    rated_players.append(player)
+        
+        # Sort by overall rating (highest first)
+        rated_players.sort(key=lambda x: x['overall_rating'], reverse=True)
+        
+        return rated_players[:15], True  # Top 15
+    except Exception as e:
+        print(f"Error getting overall leaderboard: {e}")
+        return [], False
+
 # ========================= Permission Check =========================
 
 async def check_moderator_permission(ctx):
@@ -925,6 +1054,103 @@ async def post_to_results_channel(guild, embed, match_id):
     except Exception as e:
         print(f"Error posting to results channel: {e}")
 
+@bot.command(name='overall', aliases=['or', 'topoverall'])
+async def show_overall_leaderboard(ctx):
+    """Show the overall player rankings using Bayesian + Fairness algorithm."""
+    
+    leaderboard_data, found = await get_overall_leaderboard(20)
+    
+    if not found or not leaderboard_data:
+        await ctx.send("❌ No overall leaderboard data found. Players need at least **20 games** to be ranked.")
+        return
+    
+    embed = discord.Embed(
+        title="🏆 Overall Player Rankings",
+        description="*Bayesian Average (65%) + Performance Factors (35%)*\n*Minimum 20 games required*",
+        color=PURPLE_COLOR
+    )
+    
+    # Create leaderboard entries
+    leaderboard_lines = []
+    for idx, player in enumerate(leaderboard_data):
+        # Position emoji
+        if idx == 0:
+            position = "🥇"
+        elif idx == 1:
+            position = "🥈"
+        elif idx == 2:
+            position = "🥉"
+        else:
+            position = f"`{idx+1}.`"
+        
+        # Overall rating with visual indicator
+        overall_rating = player['overall_rating']
+        if overall_rating >= 70:
+            rating_emoji = "🔥"
+        elif overall_rating >= 60:
+            rating_emoji = "⭐"
+        elif overall_rating >= 50:
+            rating_emoji = "👍"
+        else:
+            rating_emoji = "📊"
+        
+        # Recent form
+        recent_form = player.get('recent_form', '')
+        form_display = f" [{recent_form}]" if recent_form else ""
+        
+        # Use the helper function to get display name
+        display_name = get_display_name(player)
+        
+        # Current streak info
+        current_streak = player.get('current_streak', 0)
+        streak_type = player.get('streak_type', '')
+        streak_info = ""
+        if current_streak >= 3:
+            streak_emoji = "🔥" if streak_type == 'WIN' else "❄️"
+            streak_info = f" {streak_emoji}{current_streak}"
+        
+        leaderboard_lines.append(
+            f"{position} **{display_name}** - **{overall_rating}%** {rating_emoji}\n"
+            f"    ↳ {player['wins']}W-{player['losses']}L ({player['total_matches']} games){form_display}{streak_info}"
+        )
+    
+    # Split into fields if too many players
+    if len(leaderboard_lines) <= 8:
+        embed.add_field(
+            name="🎯 Top Overall Players",
+            value="\n\n".join(leaderboard_lines),
+            inline=False
+        )
+    else:
+        # Split into two fields
+        mid_point = 8
+        embed.add_field(
+            name="🎯 Top Overall Players (1-8)",
+            value="\n\n".join(leaderboard_lines[:mid_point]),
+            inline=True
+        )
+        embed.add_field(
+            name="🎯 More Players (9-15)",
+            value="\n\n".join(leaderboard_lines[mid_point:]),
+            inline=True
+        )
+    
+    # Add algorithm explanation
+    embed.add_field(
+        name="📊 How Overall Rating Works",
+        value="• **65%** Bayesian Win Rate (adjusts for sample size)\n"
+              "• **35%** Performance Factors:\n"
+              "  └ Recent form (last 5 games)\n"
+              "  └ Consistency bonus\n"
+              "  └ Activity bonus (50+ games)\n"
+              "  └ Current win streak bonus",
+        inline=False
+    )
+    
+    embed.set_footer(text=f"Use !lf stats [player] for detailed breakdown | {WEBSITE_URL}")
+    await ctx.send(embed=embed)
+
+
 # ========================= Auto Leaderboard Task =========================
 
 
@@ -1292,22 +1518,33 @@ async def help_command(ctx):
         "10. `!lf match [match_id]`\n"
         "   - Show details of a specific match\n\n"
         "11. `!lf stats [player_name]` or `!lf stats me`\n"
-        "   - Show player's win/loss statistics\n\n"
+        "   - Show player's win/loss statistics + overall rating\n\n"
         "12. `!lf players`\n"
         "   - Show all players and their statistics\n\n"
         "13. `!lf leaderboard [type]`\n"
-        "   - Show leaderboards: matches, wins, losses, winrate\n"
+        "   - Show leaderboards: matches, wins, losses, winrate, **overall**\n"
         "   - Default: `!lf leaderboard` (by matches played)\n\n"
-        "14. `!lf merge [old_player] [new_player]` *(Moderators only)*\n"
+        "14. `!lf overall` **NEW!**\n"
+        "   - Show skill-based overall rankings (min 20 games)\n\n"
+        "15. `!lf merge [old_player] [new_player]` *(Moderators only)*\n"
         "   - Merge two player accounts together\n\n"
-        "15. `!lf clear players`\n"
+        "16. `!lf clear players`\n"
         "   - Clear the player queue\n\n"
-        "16. `!lf information`\n"
+        "17. `!lf information`\n"
         "   - Shows this help message\n"
     )
 
     embed.add_field(name="Commands", value=commands_text, inline=False)
     embed.add_field(name="More Commands", value=match_commands, inline=False)
+    # Add overall rating explanation
+    embed.add_field(
+        name="🎯 Overall Rating System",
+        value="**65%** Bayesian Win Rate + **35%** Performance Factors\n"
+              "• Adjusts for sample size and recent performance\n"
+              "• Rewards consistency, activity, and win streaks\n"
+              "• Minimum 20 games required for ranking",
+        inline=False
+    )
 
     # Create a visual representation of the rank tiers with emojis
     ranks_info = ""
@@ -1324,7 +1561,6 @@ async def help_command(ctx):
     embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
 
     await ctx.send(embed=embed)
-
 @bot.command(name='join')
 async def join_queue(ctx, name=None, rank=None):
     """
@@ -1575,6 +1811,30 @@ async def show_stats(ctx, *, player_name=None):
         value=f"{wr_color} **{win_rate}%** {wr_emoji}",
         inline=True
     )
+    
+    # Overall Rating (if qualified)
+    overall_rating = calculate_overall_rating(stats)
+    if overall_rating is not None:
+        if overall_rating >= 70:
+            overall_emoji = "🔥"
+        elif overall_rating >= 60:
+            overall_emoji = "⭐"
+        elif overall_rating >= 50:
+            overall_emoji = "👍"
+        else:
+            overall_emoji = "📊"
+        
+        embed.add_field(
+            name="Overall Rating",
+            value=f"**{overall_rating}%** {overall_emoji}",
+            inline=True
+        )
+    else:
+        embed.add_field(
+            name="Overall Rating",
+            value=f"*Need {20 - stats['total_matches']} more games*",
+            inline=True
+        )
 
     recent_form = stats.get('recent_form', '')
     if recent_form:
@@ -1628,9 +1888,16 @@ async def show_stats(ctx, *, player_name=None):
             inline=True
         )
     
-    embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
+    # Add overall rating explanation if qualified
+    if overall_rating is not None:
+        embed.add_field(
+            name="🎯 Overall Rating Breakdown",
+            value="Based on Bayesian win rate + recent form, consistency, activity, and streaks",
+            inline=False
+        )
+    
+    embed.set_footer(text=f"Use !lf overall for full rankings | {WEBSITE_URL}")
     await ctx.send(embed=embed)
-
 @bot.command(name='players')
 async def show_all_players(ctx):
     """Show all players and their statistics."""
@@ -1762,9 +2029,15 @@ async def head_to_head(ctx, player1=None, player2=None):
     embed.set_footer(text=f"Visit {WEBSITE_URL} for more League of Flex features!")
     await ctx.send(embed=embed)
 
+
 @bot.command(name='leaderboard', aliases=['lb', 'top'])
 async def show_leaderboard(ctx, leaderboard_type='matches'):
-    """Show leaderboards by different criteria. Usage: !lf leaderboard [matches/wins/losses/winrate]"""
+    """Show leaderboards by different criteria. Usage: !lf leaderboard [matches/wins/losses/winrate/overall]"""
+    
+    # Handle overall leaderboard
+    if leaderboard_type.lower() in ['overall', 'or', 'topoverall']:
+        await show_overall_leaderboard(ctx)
+        return
     
     # Map user input to database columns
     type_mapping = {
@@ -1776,7 +2049,7 @@ async def show_leaderboard(ctx, leaderboard_type='matches'):
     }
     
     if leaderboard_type.lower() not in type_mapping:
-        await ctx.send("❌ Invalid leaderboard type. Use: `matches`, `wins`, `losses`, or `winrate`")
+        await ctx.send("❌ Invalid leaderboard type. Use: `matches`, `wins`, `losses`, `winrate`, or `overall`")
         return
     
     order_by = type_mapping[leaderboard_type.lower()]
@@ -1799,7 +2072,7 @@ async def show_leaderboard(ctx, leaderboard_type='matches'):
     
     embed = discord.Embed(
         title=f"🏆 Leaderboard - {titles[order_by]}",
-        description=f"*Minimum {min_games} games required*" if min_games > 1 else "",
+        description=f"*Minimum {min_games} games required*" if min_games > 1 else "*Use `!lf overall` for skill-based rankings*",
         color=PURPLE_COLOR
     )
     
@@ -1866,8 +2139,9 @@ async def show_leaderboard(ctx, leaderboard_type='matches'):
             inline=True
         )
     
-    embed.set_footer(text=f"Use !lf stats [player] for detailed stats | {WEBSITE_URL}")
+    embed.set_footer(text=f"Use !lf overall for skill rankings | {WEBSITE_URL}")
     await ctx.send(embed=embed)
+
 @bot.command(name='merge')
 async def merge_players(ctx, old_player=None, new_player=None):
     """Merge two player accounts. Usage: !lf merge [old_player] [new_player]"""
