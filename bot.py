@@ -614,7 +614,7 @@ def calculate_streak_modifier(player_stats):
 
 def calculate_overall_rating(player_stats):
     """
-    Calculate overall player rating using Bayesian Average (65%) + Fairness Modifiers (35%)
+    Calculate overall player rating using Bayesian Average (90%) + Fairness Modifiers (10%)
     
     Returns: Overall rating as percentage (0-100)
     """
@@ -622,7 +622,6 @@ def calculate_overall_rating(player_stats):
     if player_stats.get('total_matches', 0) < 20:
         return None
     
-    # Bayesian Average (65% weight)
     # Prior: 10 wins out of 20 games (50% win rate assumption)
     actual_wins = player_stats.get('wins', 0)
     actual_games = player_stats.get('total_matches', 0)
@@ -638,8 +637,8 @@ def calculate_overall_rating(player_stats):
     # Total fairness adjustment
     total_fairness_adjustment = recent_modifier + consistency_modifier + activity_modifier + streak_modifier
     
-    # Apply weights: 65% Bayesian base + 35% of fairness impact
-    overall_rating = bayesian_win_rate + (total_fairness_adjustment * 0.35)
+    # Apply weights: 90% Bayesian base + 10% of fairness impact
+    overall_rating = bayesian_win_rate + (total_fairness_adjustment * 0.10)
     
     # Convert to percentage and clamp between 0-100
     overall_percentage = min(max(overall_rating * 100, 0), 100)
@@ -1066,7 +1065,7 @@ async def show_overall_leaderboard(ctx):
     
     embed = discord.Embed(
         title="🏆 Overall Player Rankings",
-        description="*Bayesian Average (65%) + Performance Factors (35%)*\n*Minimum 20 games required*",
+        description="*Bayesian Average (90%) + Performance Factors (10%)*\n*Minimum 20 games required*",
         color=PURPLE_COLOR
     )
     
@@ -1138,8 +1137,8 @@ async def show_overall_leaderboard(ctx):
     # Add algorithm explanation
     embed.add_field(
         name="📊 How Overall Rating Works",
-        value="• **65%** Bayesian Win Rate (adjusts for sample size)\n"
-              "• **35%** Performance Factors:\n"
+        value="• **90%** Bayesian Win Rate (adjusts for sample size)\n"
+              "• **10%** Performance Factors:\n"
               "  └ Recent form (last 5 games)\n"
               "  └ Consistency bonus\n"
               "  └ Activity bonus (50+ games)\n"
@@ -1539,7 +1538,7 @@ async def help_command(ctx):
     # Add overall rating explanation
     embed.add_field(
         name="🎯 Overall Rating System",
-        value="**65%** Bayesian Win Rate + **35%** Performance Factors\n"
+        value="**90%** Bayesian Win Rate + **10%** Performance Factors\n"
               "• Adjusts for sample size and recent performance\n"
               "• Rewards consistency, activity, and win streaks\n"
               "• Minimum 20 games required for ranking",
