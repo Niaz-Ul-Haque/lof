@@ -2178,49 +2178,28 @@ async def on_message(message):
     customs_phrases = ["WHERE ARE CUSTOMS", "WHERE THE CUSTOMS", "WHERE ARE THE CUSTOMS", "WHERE CUSTOMS"]
     name_phrases = ["DRILLER", "DREAMER DRILLER", "DREAMER"]
     
-    # Collection of "give it a break" and self-reflection jokes
-    driller_break_jokes = [
-        # Jokes about the meme getting old
-        "This joke expired harder than milk left in a hot car. Time for new material, folks.",
-        "We've beaten this horse so hard it's now a fine powder. Maybe let's try a new topic?",
-        "Fun fact: This joke has been used more times than Internet Explorer was reopened to download Chrome.",
-        "The joke police called. They want to file a restraining order against this overused meme.",
-        "Breaking: Local meme declared officially deceased. Time of death: 500 mentions ago.",
+    # Tournament announcement chunks - randomly selected when driller is mentioned
+    tournament_announcements = [
+        # Main tournament intro
+        "🏆 **JULY 2025 CUSTOMS LEAGUE IS LIVE!** 🏆\n@everyone With 1350 RP and Legendary Skins on the line! Time to prove who's the best! 📈",
         
-        # Self-reflection and absence themes
-        "Plot twist: He left the server to find himself. Last seen reading 'Eat, Pray, Drill' in Bali.",
-        "He's currently on a spiritual journey to discover why people won't stop mentioning his name.",
-        "Status update: Taking a sabbatical from existence until y'all learn some new jokes.",
-        "He's in therapy working through his feelings about being constantly summoned like a digital Pokemon.",
-        "Currently attending 'How to Deal with Unwanted Attention' workshops. Please respect his privacy.",
+        # Overall leaderboard explanation
+        "🎯 **OVERALL LEADERBOARD EXPLAINED:**\nOur advanced algorithm ensures the most skilled players win!\n**Formula: Overall Rating = Bayesian Win Rate (90%) + Performance Factors (10%)**",
         
-        # Encouraging people to move on
-        "Friendly reminder: There are approximately 171,476 other words in the English language. Try some new ones!",
-        "Your creativity called. It's filing for divorce due to abandonment. Time to explore new humor territories.",
-        "Scientists confirm: Repeating the same joke doesn't make it funnier. Who would've thought?",
-        "Breaking news: Local chat discovers there are other topics of conversation. More at never because we're still here.",
-        "PSA: The joke retirement home is full. Please adopt a new meme from the local humor shelter.",
+        # Bayesian win rate breakdown
+        "🧮 **BAYESIAN WIN RATE (90% Weight):**\n- Prevents lucky streak inflation\n- Formula: (Your Wins + 10) ÷ (Your Games + 20)\n- Example: 30 wins in 50 games = (30+10)÷(50+20) = 57.1%",
         
-        # Meta-commentary on the situation
-        "He's not ignoring you, he's just practicing selective hearing for his own sanity.",
-        "Plot twist: He legally changed his name to avoid these notifications. It didn't work.",
-        "He's currently writing his autobiography: 'Mentioned to Death: A Digital Tragedy'.",
-        "Status: Considering a career change to something less... mentionable. Like being a hermit.",
-        "He's started a support group for over-mentioned individuals. Meetings are Tuesdays at 7 PM.",
+        # Performance factors
+        "⚡ **PERFORMANCE FACTORS (10% Weight):**\n- **Recent Form**: Last 5 games vs 50% expected (±2%)\n- **Consistency**: Stable performance bonus (±1%)\n- **Activity**: 50+ games bonus (±1%)\n- **Win Streaks**: 3+ game streaks bonus (±1%)",
+    
+        # Urgency reminders
+        "⏰ **JULY 2025 CUSTOMS LEAGUE - ACTIVE NOW!**\nEvery game counts toward your ranking!\n40 game minimum to qualify for prizes\n**Start playing customs TODAY!** 🎯",
         
-        # Gentle roasting of the chat behavior
-        "Y'all have the comedic range of a broken record player stuck on the same track.",
-        "This chat has one joke and somehow makes it everyone's problem. Impressive, really.",
-        "Imagine having an entire internet of memes and choosing to recycle this one daily. Wild.",
-        "The chat's comedy algorithm: Step 1) Mention name. Step 2) There is no step 2.",
-        "Local chat discovers that mentioning someone 847 times doesn't actually summon them. Shocking development.",
+        # Competition hype
+        "🔥 **COMPETITION IS HEATING UP!**\nWho will claim the 1350 RP + Legendary Skins?\nCheck your ranking with `!lf overall`\n**Prove you're the customs champion!** 💯",
         
-        # Absurd self-awareness
-        "He's transcended to a higher plane of existence where notifications can't reach him. Lucky him.",
-        "Current status: Hiding in the server's code comments hoping y'all won't find him there.",
-        "He's started a new religion where the first commandment is 'Thou shalt not ping unnecessarily'.",
-        "Breaking: Man considers faking his own digital death to escape constant mentions. More at 11.",
-        "He's currently ghost-writing a book called 'How to Disappear Completely (But People Still Won't Stop)'.",
+        # Final call to action
+        "📢 **CUSTOMS LEAGUE REMINDER:**\nJuly 1-30, 2025 | 40 games minimum | 1350 RP + Legendary Skins\nType `!lf queue` to start a custom lobby!\n**Your championship journey starts now!** 🚀"
     ]
     
     # Check for customs phrases
@@ -2228,11 +2207,11 @@ async def on_message(message):
         response = "Bro, just type in '!lf queue' to start a custom lobby and invite your friends. Also, please don't write that anymore; I have work to do as well."
         await message.channel.send(response)
     
-    # Check for driller/name phrases and respond with random "give it a break" joke
+    # Check for driller/name phrases and respond with random tournament announcement
     if any(phrase in content for phrase in name_phrases):
-        # Randomly select a joke encouraging people to move on
-        random_joke = random.choice(driller_break_jokes)
-        await message.channel.send(random_joke)
+        # Randomly select a tournament announcement chunk
+        random_announcement = random.choice(tournament_announcements)
+        await message.channel.send(random_announcement)
     
     # Process commands - this is necessary so that normal commands still work
     await bot.process_commands(message)
