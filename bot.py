@@ -2181,7 +2181,7 @@ async def on_message(message):
     # Tournament announcement chunks - randomly selected when driller is mentioned
     tournament_announcements = [
         # Main tournament intro
-        "🏆 **JULY 2025 CUSTOMS LEAGUE IS LIVE!** 🏆\n@everyone With 1350 RP and Legendary Skins on the line! Time to prove who's the best! 📈",
+        "🏆 **JULY 2025 CUSTOMS LEAGUE IS LIVE!** 🏆\n With 1350 RP and Legendary Skins on the line! Time to prove who's the best! 📈",
         
         # Overall leaderboard explanation
         "🎯 **OVERALL LEADERBOARD EXPLAINED:**\nOur advanced algorithm ensures the most skilled players win!\n**Formula: Overall Rating = Bayesian Win Rate (90%) + Performance Factors (10%)**",
