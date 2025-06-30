@@ -2176,42 +2176,23 @@ async def on_message(message):
         
     content = message.content.upper()
     customs_phrases = ["WHERE ARE CUSTOMS", "WHERE THE CUSTOMS", "WHERE ARE THE CUSTOMS", "WHERE CUSTOMS"]
-    name_phrases = ["DRILLER", "DREAMER DRILLER", "DREAMER"]
+    # name_phrases = ["DRILLER", "DREAMER DRILLER", "DREAMER"]
     
-    # Tournament announcement chunks - randomly selected when driller is mentioned
-    tournament_announcements = [
-        # Main tournament intro
-        "🏆 **JULY 2025 CUSTOMS LEAGUE IS LIVE!** 🏆\n With 1350 RP and Legendary Skins on the line! Time to prove who's the best! 📈",
-        
-        # Overall leaderboard explanation
-        "🎯 **OVERALL LEADERBOARD EXPLAINED:**\nOur advanced algorithm ensures the most skilled players win!\n**Formula: Overall Rating = Bayesian Win Rate (90%) + Performance Factors (10%)**",
-        
-        # Bayesian win rate breakdown
-        "🧮 **BAYESIAN WIN RATE (90% Weight):**\n- Prevents lucky streak inflation\n- Formula: (Your Wins + 10) ÷ (Your Games + 20)\n- Example: 30 wins in 50 games = (30+10)÷(50+20) = 57.1%",
-        
-        # Performance factors
-        "⚡ **PERFORMANCE FACTORS (10% Weight):**\n- **Recent Form**: Last 5 games vs 50% expected (±2%)\n- **Consistency**: Stable performance bonus (±1%)\n- **Activity**: 50+ games bonus (±1%)\n- **Win Streaks**: 3+ game streaks bonus (±1%)",
-    
-        # Urgency reminders
-        "⏰ **JULY 2025 CUSTOMS LEAGUE - ACTIVE NOW!**\nEvery game counts toward your ranking!\n40 game minimum to qualify for prizes\n**Start playing customs TODAY!** 🎯",
-        
-        # Competition hype
-        "🔥 **COMPETITION IS HEATING UP!**\nWho will claim the 1350 RP + Legendary Skins?\nCheck your ranking with `!lf overall`\n**Prove you're the customs champion!** 💯",
-        
-        # Final call to action
-        "📢 **CUSTOMS LEAGUE REMINDER:**\nJuly 1-30, 2025 | 40 games minimum | 1350 RP + Legendary Skins\nType `!lf queue` to start a custom lobby!\n**Your championship journey starts now!** 🚀"
-    ]
+    # tournament_announcements = [
+    #     # Main tournament intro
+    #     "🏆 **JULY 2025 CUSTOMS LEAGUE IS LIVE!** 🏆\n With 1350 RP and Legendary Skins on the line! Time to prove who's the best! 📈",
+    # ]
     
     # Check for customs phrases
     if any(phrase in content for phrase in customs_phrases):
         response = "Bro, just type in '!lf queue' to start a custom lobby and invite your friends. Also, please don't write that anymore; I have work to do as well."
         await message.channel.send(response)
     
-    # Check for driller/name phrases and respond with random tournament announcement
-    if any(phrase in content for phrase in name_phrases):
-        # Randomly select a tournament announcement chunk
-        random_announcement = random.choice(tournament_announcements)
-        await message.channel.send(random_announcement)
+    # # Check for driller/name phrases and respond with random tournament announcement
+    # if any(phrase in content for phrase in name_phrases):
+    #     # Randomly select a tournament announcement chunk
+    #     random_announcement = random.choice(tournament_announcements)
+    #     await message.channel.send(random_announcement)
     
     # Process commands - this is necessary so that normal commands still work
     await bot.process_commands(message)
