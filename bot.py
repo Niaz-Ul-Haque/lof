@@ -708,30 +708,96 @@ class MatchResultView(View):
         self.team1_name = team1_name
         self.team2_name = team2_name
     
+    async def _handle_expired_interaction(self, interaction: discord.Interaction, winning_team: str):
+        """Handle expired interactions with appropriate moderator guidance."""
+        if not check_moderator_permission_interaction(interaction):
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ You need moderator permissions to update match results.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ You need moderator permissions to update match results.", ephemeral=True)
+            except:
+                pass
+            return
+        
+        team_name = self.team1_name if winning_team == 'team1' else self.team2_name
+        team_letter = "teama" if winning_team == 'team1' else "teamb"
+        
+        expired_message = (
+            f"⏰ **Button Expired** - These buttons only work for 15 minutes after posting.\n\n"
+            f"✅ **To record that {team_name} won, use this command:**\n"
+            f"```!lf result {self.match_id} {team_letter}```\n\n"
+            f"💡 **Tip:** You can use this manual command anytime to update match results!"
+        )
+        
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(expired_message, ephemeral=True)
+            else:
+                await interaction.followup.send(expired_message, ephemeral=True)
+        except:
+            try:
+                await interaction.user.send(f"Button expired for match {self.match_id}. Use: `!lf result {self.match_id} {team_letter}`")
+            except:
+                pass
+    
     @discord.ui.button(label="Team A Won", style=discord.ButtonStyle.primary, emoji="🔵")
     async def team_a_won(self, interaction: discord.Interaction, button: Button):
         if not check_moderator_permission_interaction(interaction):
             await interaction.response.send_message("❌ You need moderator permissions to update match results.", ephemeral=True)
             return
         
-        success, message = await update_match_result(self.match_id, 'team1', interaction.user.display_name)
+        # Check if buttons are already disabled (match already completed)
+        if button.disabled:
+            await interaction.response.send_message("❌ This match result has already been updated.", ephemeral=True)
+            return
         
-        if success:
-            embed = discord.Embed(
-                title="🏆 Match Result Updated!",
-                description=f"**Team A: {self.team1_name}** wins!",
-                color=GREEN_COLOR
-            )
-            embed.add_field(name="Match ID", value=self.match_id, inline=True)
-            embed.add_field(name="Updated by", value=interaction.user.display_name, inline=True)
+        try:
+            success, message = await update_match_result(self.match_id, 'team1', interaction.user.display_name)
             
-            # Disable buttons
-            for item in self.children:
-                item.disabled = True
-            
-            await interaction.response.edit_message(embed=embed, view=self)
-        else:
-            await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+            if success:
+                embed = discord.Embed(
+                    title="🏆 Match Result Updated!",
+                    description=f"**Team A: {self.team1_name}** wins!",
+                    color=GREEN_COLOR
+                )
+                embed.add_field(name="Match ID", value=self.match_id, inline=True)
+                embed.add_field(name="Updated by", value=interaction.user.display_name, inline=True)
+                
+                # Disable buttons
+                for item in self.children:
+                    item.disabled = True
+                
+                # Check if interaction is still valid
+                if not interaction.response.is_done():
+                    await interaction.response.edit_message(embed=embed, view=self)
+                else:
+                    # If interaction already responded, try followup
+                    await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
+            else:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+                else:
+                    await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                    
+        except discord.NotFound:
+            # Message was deleted or interaction expired
+            await self._handle_expired_interaction(interaction, 'team1')
+        except discord.errors.InteractionResponded:
+            # Interaction already responded to
+            try:
+                await interaction.followup.send("❌ Unable to process the request. Please try again.", ephemeral=True)
+            except:
+                pass
+        except Exception as e:
+            print(f"Error in team_a_won: {e}")
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ An error occurred while processing the result.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ An error occurred while processing the result.", ephemeral=True)
+            except:
+                pass
     
     @discord.ui.button(label="Team B Won", style=discord.ButtonStyle.danger, emoji="🔴")
     async def team_b_won(self, interaction: discord.Interaction, button: Button):
@@ -739,24 +805,57 @@ class MatchResultView(View):
             await interaction.response.send_message("❌ You need moderator permissions to update match results.", ephemeral=True)
             return
         
-        success, message = await update_match_result(self.match_id, 'team2', interaction.user.display_name)
+        # Check if buttons are already disabled (match already completed)
+        if button.disabled:
+            await interaction.response.send_message("❌ This match result has already been updated.", ephemeral=True)
+            return
         
-        if success:
-            embed = discord.Embed(
-                title="🏆 Match Result Updated!",
-                description=f"**Team B: {self.team2_name}** wins!",
-                color=GREEN_COLOR
-            )
-            embed.add_field(name="Match ID", value=self.match_id, inline=True)
-            embed.add_field(name="Updated by", value=interaction.user.display_name, inline=True)
+        try:
+            success, message = await update_match_result(self.match_id, 'team2', interaction.user.display_name)
             
-            # Disable buttons
-            for item in self.children:
-                item.disabled = True
-            
-            await interaction.response.edit_message(embed=embed, view=self)
-        else:
-            await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+            if success:
+                embed = discord.Embed(
+                    title="🏆 Match Result Updated!",
+                    description=f"**Team B: {self.team2_name}** wins!",
+                    color=GREEN_COLOR
+                )
+                embed.add_field(name="Match ID", value=self.match_id, inline=True)
+                embed.add_field(name="Updated by", value=interaction.user.display_name, inline=True)
+                
+                # Disable buttons
+                for item in self.children:
+                    item.disabled = True
+                
+                # Check if interaction is still valid
+                if not interaction.response.is_done():
+                    await interaction.response.edit_message(embed=embed, view=self)
+                else:
+                    # If interaction already responded, try followup
+                    await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
+            else:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+                else:
+                    await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                    
+        except discord.NotFound:
+            # Message was deleted or interaction expired
+            await self._handle_expired_interaction(interaction, 'team2')
+        except discord.errors.InteractionResponded:
+            # Interaction already responded to
+            try:
+                await interaction.followup.send("❌ Unable to process the request. Please try again.", ephemeral=True)
+            except:
+                pass
+        except Exception as e:
+            print(f"Error in team_b_won: {e}")
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ An error occurred while processing the result.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ An error occurred while processing the result.", ephemeral=True)
+            except:
+                pass
 
 # ========================= Bot Functions =========================
 
